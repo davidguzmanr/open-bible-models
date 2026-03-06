@@ -9,10 +9,9 @@ We use [F5-TTS](https://github.com/SWivid/F5-TTS) to train text-to-speech models
 ### Setup
 
 ```bash
-module load miniconda/3
-conda env create -f F5-TTS/environment.yaml
-conda activate F5-TTS
 cd F5-TTS
+conda env create -f environment.yaml
+conda activate F5-TTS
 ```
 
 ### Data Preparation
@@ -20,6 +19,8 @@ cd F5-TTS
 The `prepare_data.py` script automates the full pipeline: metadata creation, audio preprocessing, vocabulary generation, training parameter estimation, and config generation.
 
 ```bash
+cd F5-TTS
+
 # Single language (downloads from Hugging Face)
 python prepare_data.py --languages Yoruba
 
@@ -58,11 +59,9 @@ Key options:
 After data preparation, launch training with the generated config:
 
 ```bash
+cd F5-TTS
+
 accelerate launch --mixed_precision bf16 \
     src/f5_tts/train/train.py \
     --config-name F5TTS_v1_Base_Open_Bible_Yoruba.yaml
 ```
-
-The exact command is printed at the end of `prepare_data.py`. Checkpoints are saved to `ckpts/` with Hydra-managed timestamped directories.
-
-To resume from a checkpoint, simply re-run the same command — the trainer auto-detects the latest checkpoint under the `ckpts/` directory.
