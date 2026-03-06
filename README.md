@@ -47,6 +47,7 @@ Key options:
 |------|---------|-------------|
 | `--dataset-base` | *(none)* | Local data path; if omitted, downloads from HF |
 | `--hf-repo` | `davidguzmanr/open-bible-resources` | Hugging Face dataset repo |
+| `--max-duration` | 15 | Discard audio files longer than this many seconds; 0 to disable |
 | `--target-updates` | 500,000 | Total training updates to target |
 | `--batch-size-per-gpu` | 28,000 | Frame budget per GPU batch |
 | `--max-samples` | 32 | Max sequences per batch |
