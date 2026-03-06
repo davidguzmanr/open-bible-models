@@ -20,18 +20,21 @@ cd F5-TTS
 The `prepare_data.py` script automates the full pipeline: metadata creation, audio preprocessing, vocabulary generation, training parameter estimation, and config generation.
 
 ```bash
-# Single language
-python prepare_data.py --dataset-base /path/to/bible-tts-resources --languages Yoruba
+# Single language (downloads from Hugging Face)
+python prepare_data.py --languages Yoruba
 
 # Multiple languages
-python prepare_data.py --dataset-base /path/to/bible-tts-resources --languages Yoruba Ewe Hausa
+python prepare_data.py --languages Yoruba Ewe Hausa
+
+# Use a local dataset directory instead of Hugging Face
+python prepare_data.py --dataset-base /path/to/bible-tts-resources --languages Yoruba
 ```
 
-`--dataset-base` must point to a directory containing one subdirectory per language, each with a `train.tsv` and a `wav/` folder.
+By default, audio data is downloaded from [davidguzmanr/open-bible-resources](https://huggingface.co/datasets/davidguzmanr/open-bible-resources) on Hugging Face. Alternatively, use `--dataset-base` to point to a local directory containing one subdirectory per language, each with a `train.tsv` and a `wav/` folder.
 
 For each language it:
 
-1. Creates `data/open-bible-{lang}/metadata.csv` from `train.tsv` (with absolute paths to the wav files)
+1. Downloads wav files from Hugging Face (or creates metadata from local `train.tsv`)
 2. Runs `prepare_csv_wavs.py` to produce `raw.arrow`, `duration.json`, and `vocab.txt`
 3. Verifies the generated vocabulary
 4. Estimates training epochs based on dataset size and target updates
@@ -41,6 +44,8 @@ Key options:
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--dataset-base` | *(none)* | Local data path; if omitted, downloads from HF |
+| `--hf-repo` | `davidguzmanr/open-bible-resources` | Hugging Face dataset repo |
 | `--target-updates` | 500,000 | Total training updates to target |
 | `--batch-size-per-gpu` | 28,000 | Frame budget per GPU batch |
 | `--max-samples` | 32 | Max sequences per batch |
@@ -57,3 +62,7 @@ accelerate launch --mixed_precision bf16 \
     src/f5_tts/train/train.py \
     --config-name F5TTS_v1_Base_Open_Bible_Yoruba.yaml
 ```
+
+The exact command is printed at the end of `prepare_data.py`. Checkpoints are saved to `ckpts/` with Hydra-managed timestamped directories.
+
+To resume from a checkpoint, simply re-run the same command — the trainer auto-detects the latest checkpoint under the `ckpts/` directory.
