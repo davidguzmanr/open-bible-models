@@ -220,3 +220,5 @@ F5-TTS/runs
 Matcha-TTS/
 Qwen3-TTS/
 VITS/
+
+jobs/*.out

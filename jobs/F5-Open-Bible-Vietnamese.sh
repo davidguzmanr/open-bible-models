@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=F5-Open-Bible-Yoruba
+#SBATCH --job-name=F5-Open-Bible-Vietnamese
 #SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:l40s:2
@@ -39,8 +39,8 @@ cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/F5-TTS
 ##################################################################
 # Training
 ##################################################################
-python prepare_data.py --languages Yoruba --num-gpus 2 --target-updates 500000
-accelerate launch --num_processes 2 --mixed_precision bf16 src/f5_tts/train/train.py --config-name F5TTS_v1_Base_Open_Bible_Yoruba.yaml
+python prepare_data.py --languages Vietnamese --num-gpus 2 --target-updates 500000
+accelerate launch --num_processes 2 --mixed_precision bf16 src/f5_tts/train/train.py --config-name F5TTS_v1_Base_Open_Bible_Vietnamese.yaml
 
 ELAPSED=$(( SECONDS - START_TIME ))
 HOURS=$(( ELAPSED / 3600 ))

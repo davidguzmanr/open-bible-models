@@ -2,6 +2,18 @@
 
 TTS models trained on [Open Bible](https://open.bible/) datasets for low-resource languages.
 
+## Getting Started
+
+This repo uses [Git submodules](https://git-scm.com/book/en/v2/Git-Tools-Submodules) (e.g. F5-TTS), which are not fetched by default when cloning. You need to initialize them explicitly:
+
+```bash
+# Clone with submodules
+git clone --recurse-submodules https://github.com/davidguzmanr/open-bible-models.git
+
+# Or, if already cloned without submodules
+git submodule update --init --recursive
+```
+
 ## F5-TTS
 
 We use [F5-TTS](https://github.com/SWivid/F5-TTS) to train text-to-speech models from scratch on per-language Bible audio data.
