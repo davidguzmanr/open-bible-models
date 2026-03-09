@@ -4,7 +4,7 @@ TTS models trained on [Open Bible](https://open.bible/) datasets for low-resourc
 
 ## Getting Started
 
-This repo uses [Git submodules](https://git-scm.com/book/en/v2/Git-Tools-Submodules) (e.g. F5-TTS), which are not fetched by default when cloning. You need to initialize them explicitly:
+This repo uses [Git submodules](https://git-scm.com/book/en/v2/Git-Tools-Submodules) (e.g. F5-TTS), which are not fetched by default when cloning. You need to initialize them explicitly
 
 ```bash
 # Clone with submodules
