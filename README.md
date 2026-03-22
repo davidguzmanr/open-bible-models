@@ -37,8 +37,15 @@ cd F5-TTS
 # Single language (downloads from Hugging Face)
 python prepare_data.py --languages Yoruba
 
-# Multiple languages
+# Multiple languages, each trained separately
 python prepare_data.py --languages Yoruba Ewe Hausa
+
+# Multilingual (combine into one dataset and one config)
+python prepare_data.py --languages Yoruba Ewe Hausa --multilingual
+
+# Filter to a specific testament for one or more languages
+python prepare_data.py --languages Yoruba --filter-testament '{"Yoruba": "New Testament"}'
+python prepare_data.py --languages Yoruba Ewe Hausa --multilingual --filter-testament '{"Yoruba": "New Testament"}'
 ```
 
 By default, audio data is downloaded from [davidguzmanr/open-bible-resources](https://huggingface.co/datasets/davidguzmanr/open-bible-resources) on Hugging Face.
@@ -63,6 +70,8 @@ Key options:
 | `--num-gpus` | 1 | Number of GPUs (affects epoch calculation) |
 | `--workers` | 4 | Threads for audio preprocessing |
 | `--skip-preprocess` | off | Skip `prepare_csv_wavs.py` if already done |
+| `--multilingual` | off | Combine all languages into one dataset and config |
+| `--filter-testament` | `null` | JSON dict mapping language names to testament strings (e.g. `'{"Yoruba": "New Testament"}'`); languages not listed use all data |
 
 ### Training
 

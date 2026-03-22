@@ -222,3 +222,6 @@ Qwen3-TTS/
 VITS/
 
 jobs/*.out
+jobs/logs/*.out
+
+dev.ipynb
