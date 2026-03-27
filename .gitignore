@@ -217,9 +217,12 @@ F5-TTS/data/yoruba-30-minutes/
 F5-TTS/data/yoruba-30-minutes_pinyin/
 F5-TTS/runs
 
+EveryVoice/
 Matcha-TTS/
 Qwen3-TTS/
 VITS/
+
+EveryVoice-TTS/Open-Bible-Yoruba-NT
 
 jobs/*.out
 jobs/logs/*.out
