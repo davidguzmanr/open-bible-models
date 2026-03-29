@@ -12,6 +12,9 @@ git clone --recurse-submodules https://github.com/davidguzmanr/open-bible-models
 
 # Or, if already cloned without submodules
 git submodule update --init --recursive
+
+# To pull the latest changes
+git pull --recurse-submodules
 ```
 
 ## F5-TTS
@@ -103,3 +106,35 @@ The generated config (e.g. Yoruba) sets `optim.epochs=575`, which is calibrated 
 | Total data processed | same | same | same |
 
 With DDP (Accelerate's default `split_batches=False`), each GPU processes `batch_size_per_gpu` frames independently, then gradients are averaged. More GPUs means a larger effective batch size per update, fewer updates per epoch, but the same number of passes over the dataset. Wall-clock time scales roughly linearly with the number of GPUs.
+
+### Finetuning from a Multilingual Checkpoint
+
+To finetune an existing multilingual model, pass `--finetune` with the checkpoint and its vocabulary. The language argument accepts a testament suffix (e.g. `Kikuyu:NT`) to restrict data to one testament:
+
+```bash
+cd F5-TTS
+
+python prepare_data.py --languages Maori:NT --finetune \
+    --pretrain-ckpt ckpts/F5TTS_v1_Base_vocos_custom_open-bible-hiligaynon-maori-nt-vietnamese/model_last.pt \
+    --pretrain-vocab data/open-bible-hiligaynon-maori-nt-vietnamese_custom/vocab.txt \
+    --num-gpus 2 --target-updates 200000
+```
+
+Then launch training with the finetune command that `prepare_data.py` outputs
+```
+accelerate launch --num_processes 2 --mixed_precision bf16 \
+    src/f5_tts/train/finetune_cli.py \
+    --exp_name F5TTS_v1_Base \
+    --dataset_name open-bible-maori-nt-finetune \
+    --finetune \
+    --pretrain ckpts/F5TTS_v1_Base_vocos_custom_open-bible-hiligaynon-maori-nt-vietnamese/model_last.pt \
+    --tokenizer custom \
+    --tokenizer_path data/open-bible-hiligaynon-maori-nt-vietnamese_custom/vocab.txt \
+    --epochs 1243 \
+    --learning_rate 1e-5 \
+    --batch_size_per_gpu 28000 \
+    --max_samples 32 \
+    --num_warmup_updates 2000 \
+    --save_per_updates 10000 \
+    --logger tensorboard
+```
