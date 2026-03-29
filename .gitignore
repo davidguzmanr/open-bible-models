@@ -223,6 +223,7 @@ Qwen3-TTS/
 VITS/
 
 EveryVoice-TTS/Open-Bible-Yoruba-NT
+EveryVoice-TTS/synthesis_output
 
 jobs/*.out
 jobs/logs/*.out
