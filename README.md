@@ -138,3 +138,77 @@ accelerate launch --num_processes 2 --mixed_precision bf16 \
     --save_per_updates 10000 \
     --logger tensorboard
 ```
+
+## EveryVoice (FastSpeech2)
+
+We also train TTS models using [EveryVoice](https://github.com/EveryVoiceTTS/EveryVoice), which uses a FastSpeech2-based feature prediction model followed by a HiFi-GAN vocoder.
+
+### Setup
+
+Follow the [EveryVoice installation guide](https://docs.everyvoice.ca/latest/install/). Once installed, activate the environment:
+
+```bash
+conda activate EveryVoice
+```
+
+### Data Preparation
+
+The data is the same as what `F5-TTS/prepare_data.py` produces. EveryVoice expects a filelist (`.psv`) and audio files; preprocessing is handled by `everyvoice preprocess` (see below).
+
+### Project Setup
+
+Create a new project using the interactive wizard with default parameters:
+
+```bash
+everyvoice new-project
+```
+
+This generates the config files under `config/` (`everyvoice-shared-data.yaml`, `everyvoice-text-to-spec.yaml`, `everyvoice-spec-to-wav.yaml`).
+
+### Training
+
+Training involves three stages: preprocessing, feature prediction (text → mel spectrogram), and vocoder fine-tuning (mel → waveform). See [`jobs/EveryVoice-Open-Bible-Yoruba-NT.sh`](jobs/EveryVoice-Open-Bible-Yoruba-NT.sh) for the exact parameters used.
+
+```bash
+# 1. Preprocess
+everyvoice preprocess config/everyvoice-text-to-spec.yaml \
+    --config-args preprocessing.audio.max_audio_length=15 \
+    --config-args preprocessing.train_split=1.0 \
+    --overwrite
+
+# 2. Train feature prediction model (2 GPUs, DDP)
+everyvoice train text-to-spec config/everyvoice-text-to-spec.yaml \
+    --devices 2 --strategy ddp \
+    --config-args training.max_steps=250000 \
+    --config-args training.batch_size=32
+
+# 3. Fine-tune vocoder
+everyvoice train spec-to-wav config/everyvoice-spec-to-wav.yaml \
+    --devices 2 --strategy ddp \
+    --config-args training.finetune=True \
+    --config-args training.max_steps=50000
+```
+
+## Evaluation
+
+Once a model is trained, evaluate it on the test split by first synthesizing audio with the trained checkpoint and then running `evaluate-tts.py`.
+
+```bash
+python evaluate-tts.py \
+    --ground_truth_dir /path/to/ground-truth \
+    --synthesized_dir /path/to/generated \
+    --metadata_csv /path/to/test.csv \
+    --output_csv /path/to/results.csv \
+    --metrics utmos wer \
+    --asr-lang yor_Latn \
+    --system-name everyvoice
+```
+
+`evaluate-tts.py` supports four metrics:
+
+| Metric | Type | Direction |
+|--------|------|-----------|
+| `mcd` | Mel Cepstral Distortion | lower is better |
+| `speechbertscore` | WavLM-based similarity | higher is better |
+| `utmos` | Predicted MOS (UTMOSv2) | higher is better |
+| `wer` | Word Error Rate via ASR | lower is better |

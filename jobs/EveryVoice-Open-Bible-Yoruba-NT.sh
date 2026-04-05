@@ -38,6 +38,7 @@ cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/EveryVoice-TTS/Op
 ##################################################################
 # TODO list before running the experiment
 # - Change the max_audio_length and train_split in everyvoice-shared-data.yaml
+
 # - Change the val_check_interval, max_steps and batch_size in everyvoice-text-to-spec.yaml
 # - Change vocoder_path in everyvoice-text-to-spec.yaml
 #     - /home/mila/g/guzmand/scratch/checkpoints/hifigan_universal_v1_everyvoice.ckpt
@@ -53,41 +54,60 @@ cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/EveryVoice-TTS/Op
 ##################################################################
 # 1. Preprocess the data (if not done already)
 ##################################################################
-everyvoice preprocess --overwrite config/everyvoice-text-to-spec.yaml
+everyvoice preprocess config/everyvoice-text-to-spec.yaml \
+    --config-args preprocessing.audio.max_audio_length=15 \
+    --config-args preprocessing.train_split=1.0 \
+    --overwrite
 
-##################################################################
-# Feature prediction (2 GPUs, DDP — equivalent to 500k steps on 1 GPU)
-##################################################################
+# Validation is required by the training loop; use a subset of training data as a proxy since we used all data for training
+head -n 512 preprocessed/training_filelist.psv >| preprocessed/validation_filelist.psv
+
+# ##################################################################
+# # Feature prediction (2 GPUs, DDP — equivalent to 500k steps on 1 GPU)
+# ##################################################################
 everyvoice train text-to-spec config/everyvoice-text-to-spec.yaml \
     --devices 2 \
     --strategy ddp \
-    --config-args training.max_steps=250000
+    --config-args training.max_steps=250000 \
+    --config-args training.batch_size=32 \
+    --config-args training.val_check_interval=5000 \
+    --config-args training.vocoder_path="/home/mila/g/guzmand/scratch/checkpoints/hifigan_universal_v1_everyvoice.ckpt" \
 
-##################################################################
-# Vocoder matching 
-##################################################################
-# # Generate a folder full of Mel spectrograms from the training set
-# everyvoice synthesize from-text \
-#     logs_and_checkpoints/FeaturePredictionExperiment/base/checkpoints/last.ckpt \
-#     --output-type spec \
-#     --filelist preprocessed/training_filelist.psv \
-#     --teacher-forcing-directory preprocessed \
-#     --output-dir preprocessed \
-#     --accelerator gpu \
-#     --batch-size 16
 
-# # Generate a folder full of Mel spectrograms from the validation set
-# everyvoice synthesize from-text \
-#     logs_and_checkpoints/FeaturePredictionExperiment/base/checkpoints/last.ckpt \
-#     --output-type spec \
-#     --filelist preprocessed/validation_filelist.psv \
-#     --teacher-forcing-directory preprocessed \
-#     --output-dir preprocessed \
-#     --accelerator gpu \
-#     --batch-size 16
+# ##################################################################
+# # Vocoder matching 
+# ##################################################################
+# Generate a folder full of Mel spectrograms from the training set
+everyvoice synthesize from-text \
+    logs_and_checkpoints/FeaturePredictionExperiment/base/checkpoints/last.ckpt \
+    --output-type spec \
+    --filelist preprocessed/training_filelist.psv \
+    --teacher-forcing-directory preprocessed \
+    --output-dir preprocessed \
+    --accelerator gpu \
+    --batch-size 32
+
+# # # Generate a folder full of Mel spectrograms from the validation set
+everyvoice synthesize from-text \
+    logs_and_checkpoints/FeaturePredictionExperiment/base/checkpoints/last.ckpt \
+    --output-type spec \
+    --filelist preprocessed/validation_filelist.psv \
+    --teacher-forcing-directory preprocessed \
+    --output-dir preprocessed \
+    --accelerator gpu \
+    --batch-size 32
 
 # # Fine-tune the vocoder on the generated Mel spectrograms
-# everyvoice train spec-to-wav config/everyvoice-spec-to-wav.yaml  --config-args training.finetune=True
+everyvoice train spec-to-wav config/everyvoice-spec-to-wav.yaml  \
+    --devices 2 \
+    --strategy ddp \
+    --config-args training.finetune_checkpoint="/home/mila/g/guzmand/scratch/checkpoints/hifigan_universal_v1_everyvoice.ckpt" \
+    --config-args training.finetune=True \
+    --config-args training.optimizer.learning_rate=0.00001 \
+    --config-args training.max_steps=50000 \
+    --config-args training.batch_size=32 \
+    --config-args training.val_check_interval=5000
+
 
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
