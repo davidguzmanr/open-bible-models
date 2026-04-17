@@ -139,6 +139,77 @@ accelerate launch --num_processes 2 --mixed_precision bf16 \
     --logger tensorboard
 ```
 
+### Multilingual Training with Language-ID Tokens
+
+By default, multilingual training combines all languages into a single dataset with no explicit signal about which language is being spoken. Adding the `--prepend` flag prefixes every text sample with a language-ID token such as `<|Yoruba|>`, giving the model a dedicated embedding per language.
+
+#### Data preparation
+
+```bash
+cd F5-TTS
+
+python prepare_data.py \
+    --languages Yoruba Ewe Hausa \
+    --multilingual \
+    --prepend
+```
+
+Each text in the combined dataset is transformed:
+
+```
+# without --prepend
+In the beginning God created the heavens and the earth.
+
+# with --prepend
+<|Yoruba|> In the beginning God created the heavens and the earth.
+```
+
+The token `<|Yoruba|>` is treated as a single indivisible entry in `vocab.txt` (not split into individual characters), so the model gets one dedicated embedding for each language.
+
+#### Training
+
+The generated config is identical to the standard multilingual case. Launch training the same way:
+
+```bash
+# Single GPU
+accelerate launch --mixed_precision bf16 \
+    src/f5_tts/train/train.py \
+    --config-name F5TTS_v1_Base_Open_Bible_Ewe-Hausa-Yoruba.yaml
+
+# Multi-GPU (e.g. 2 GPUs)
+accelerate launch --num_processes 2 --mixed_precision bf16 \
+    src/f5_tts/train/train.py \
+    --config-name F5TTS_v1_Base_Open_Bible_Ewe-Hausa-Yoruba.yaml
+```
+
+> **Note:** Tagged and untagged datasets are not compatible. A model trained with `--prepend` has language-ID tokens in its vocabulary and expects them at inference time; a model trained without `--prepend` does not. Do not mix them.
+
+#### Inference
+
+Use `inference-test-split-tagged.py` instead of `inference-test-split.py`. It automatically prepends the correct `<|Language|>` token to both the reference text and each generated text, and can process multiple languages in one run against the same multilingual checkpoint.
+
+```bash
+cd F5-TTS
+
+# Single language
+python inference-test-split-tagged.py \
+    --languages Yoruba \
+    --ckpt_path ckpts/F5TTS_v1_Base_vocos_custom_open-bible-ewe-hausa-yoruba/model_last.pt \
+    --vocab_file data/open-bible-ewe-hausa-yoruba_custom/vocab.txt \
+    --model_cfg src/f5_tts/configs/F5TTS_v1_Base_Open_Bible_Ewe-Hausa-Yoruba.yaml \
+    --metadata_path data/open-bible-ewe-hausa-yoruba/metadata.csv
+
+# All languages in one shot (model is loaded only once)
+python inference-test-split-tagged.py \
+    --languages Yoruba Ewe Hausa \
+    --ckpt_path ckpts/F5TTS_v1_Base_vocos_custom_open-bible-ewe-hausa-yoruba/model_last.pt \
+    --vocab_file data/open-bible-ewe-hausa-yoruba_custom/vocab.txt \
+    --model_cfg src/f5_tts/configs/F5TTS_v1_Base_Open_Bible_Ewe-Hausa-Yoruba.yaml \
+    --metadata_path data/open-bible-ewe-hausa-yoruba/metadata.csv
+```
+
+Outputs are written to `synthesis_output/<checkpoint-dir>/<language>/generated/` with a matching `ground-truth/` directory for evaluation.
+
 ## EveryVoice (FastSpeech2)
 
 We also train TTS models using [EveryVoice](https://github.com/EveryVoiceTTS/EveryVoice), which uses a FastSpeech2-based feature prediction model followed by a HiFi-GAN vocoder.
