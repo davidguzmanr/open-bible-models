@@ -131,7 +131,7 @@ everyvoice train spec-to-wav config/everyvoice-spec-to-wav.yaml  \
     --config-args "training.finetune_checkpoint=${HIFIGAN_UNIVERSAL_V1_EVERYVOICE_CKPT}" \
     --config-args training.finetune=True \
     --config-args training.optimizer.learning_rate=0.00001 \
-    --config-args training.max_steps=50000 \
+    --config-args training.max_steps=100000 \
     --config-args training.batch_size=32 \
     --config-args training.val_check_interval=5000
 
