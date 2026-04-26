@@ -222,12 +222,19 @@ Matcha-TTS/
 Qwen3-TTS/
 VITS/
 F5-JJ/
+mila-docs/
+checkpoints/
 
 EveryVoice-TTS/Open-Bible-Yoruba-NT
 EveryVoice-TTS/Igbo-Ewe-Yoruba-NT
 EveryVoice-TTS/synthesis_output
 
-jobs/*.out
-jobs/logs/*.out
+*.out
+
+jobs/TamIA
+jobs/Vulcan
+jobs/Killarney
+jobs/Fir
+jobs/Rorqual
 
 dev.ipynb

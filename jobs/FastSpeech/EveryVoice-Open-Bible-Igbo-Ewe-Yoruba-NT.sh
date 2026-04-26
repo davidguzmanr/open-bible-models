@@ -35,6 +35,8 @@ echo $HF_HOME
 
 cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/EveryVoice-TTS/Igbo-Ewe-Yoruba-NT
 
+HIFIGAN_UNIVERSAL_V1_EVERYVOICE_CKPT="/home/mila/g/guzmand/scratch/checkpoints/hifigan_universal_v1_everyvoice.ckpt"
+
 ##################################################################
 # TODO list before running the experiment
 # - Multilingual + multispeaker: set model.multilingual=true (and model.multispeaker=true)
@@ -79,21 +81,37 @@ everyvoice train text-to-spec config/everyvoice-text-to-spec.yaml \
     --config-args training.max_steps=250000 \
     --config-args training.batch_size=32 \
     --config-args training.val_check_interval=5000 \
-    --config-args training.vocoder_path="/home/mila/g/guzmand/scratch/checkpoints/hifigan_universal_v1_everyvoice.ckpt"
+    --config-args "training.vocoder_path=${HIFIGAN_UNIVERSAL_V1_EVERYVOICE_CKPT}"
 
 
 # ##################################################################
 # # Vocoder matching 
 # ##################################################################
-# Generate a folder full of Mel spectrograms from the training set
-everyvoice synthesize from-text \
-    logs_and_checkpoints/FeaturePredictionExperiment/base/checkpoints/last.ckpt \
-    --output-type spec \
-    --filelist preprocessed/training_filelist.psv \
-    --teacher-forcing-directory preprocessed \
-    --output-dir preprocessed \
-    --accelerator gpu \
-    --batch-size 32
+# Generate a folder full of Mel spectrograms from the training set.
+# We split the filelist into chunks of 5000 lines and synthesize each chunk
+# separately to avoid OOM. The root cause is that `everyvoice synthesize`
+# calls `trainer.predict(..., return_predictions=True)`, which makes PyTorch
+# Lightning accumulate every predict_step output tensor in CPU RAM for the
+# entire run — even though the PredictionWritingSpecCallback already writes
+# each batch to disk immediately. With 24k training samples this exhausts
+# available memory before synthesis completes. Chunking caps the in-memory
+# accumulation to 5k tensors per call and RAM is freed between chunks.
+HEADER=$(head -n 1 preprocessed/training_filelist.psv)
+CHUNK_DIR=$(mktemp -d)
+tail -n +2 preprocessed/training_filelist.psv | split -l 5000 - "$CHUNK_DIR/chunk_"
+for chunk in "$CHUNK_DIR"/chunk_*; do
+    { echo "$HEADER"; cat "$chunk"; } > "$CHUNK_DIR/current_chunk.psv"
+    everyvoice synthesize from-text \
+        logs_and_checkpoints/FeaturePredictionExperiment/base/checkpoints/last.ckpt \
+        --output-type spec \
+        --filelist "$CHUNK_DIR/current_chunk.psv" \
+        --teacher-forcing-directory preprocessed \
+        --output-dir preprocessed \
+        --accelerator gpu \
+        --devices 1 \
+        --batch-size 32
+done
+rm -rf "$CHUNK_DIR"
 
 # # # Generate a folder full of Mel spectrograms from the validation set
 everyvoice synthesize from-text \
@@ -103,16 +121,17 @@ everyvoice synthesize from-text \
     --teacher-forcing-directory preprocessed \
     --output-dir preprocessed \
     --accelerator gpu \
+    --devices 1 \
     --batch-size 32
 
 # # Fine-tune the vocoder on the generated Mel spectrograms
 everyvoice train spec-to-wav config/everyvoice-spec-to-wav.yaml  \
     --devices 2 \
     --strategy ddp \
-    --config-args training.finetune_checkpoint="/home/mila/g/guzmand/scratch/checkpoints/hifigan_universal_v1_everyvoice.ckpt" \
+    --config-args "training.finetune_checkpoint=${HIFIGAN_UNIVERSAL_V1_EVERYVOICE_CKPT}" \
     --config-args training.finetune=True \
     --config-args training.optimizer.learning_rate=0.00001 \
-    --config-args training.max_steps=25000 \
+    --config-args training.max_steps=50000 \
     --config-args training.batch_size=32 \
     --config-args training.val_check_interval=5000
 
@@ -125,3 +144,4 @@ SECONDS=$((DURATION % 60))
 
 echo "Job $SLURM_JOB_ID finished on $(hostname) at $(date)"
 echo "Total duration: ${HOURS}h ${MINUTES}m ${SECONDS}s"
+
