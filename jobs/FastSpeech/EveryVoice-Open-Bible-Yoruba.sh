@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=EveryVoice-Open-Bible-Yoruba-NT
+#SBATCH --job-name=EveryVoice-Open-Bible-Yoruba
 #SBATCH --partition=long
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:l40s:2
@@ -33,7 +33,7 @@ echo "NVIDIA SMI:"
 nvidia-smi
 echo $HF_HOME
 
-cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/EveryVoice-TTS/Open-Bible-Yoruba-NT
+cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/EveryVoice-TTS/Open-Bible-Yoruba
 
 HIFIGAN_UNIVERSAL_V1_EVERYVOICE_CKPT="/home/mila/g/guzmand/scratch/checkpoints/hifigan_universal_v1_everyvoice.ckpt"
 
@@ -57,6 +57,8 @@ HIFIGAN_UNIVERSAL_V1_EVERYVOICE_CKPT="/home/mila/g/guzmand/scratch/checkpoints/h
 # 1. Preprocess the data (if not done already)
 ##################################################################
 everyvoice preprocess config/everyvoice-text-to-spec.yaml \
+    --config-args model.multilingual=false \
+    --config-args model.multispeaker=true \
     --config-args preprocessing.audio.max_audio_length=15 \
     --config-args preprocessing.train_split=1.0 \
     --cpus=8 \
@@ -71,7 +73,9 @@ head -n 512 preprocessed/training_filelist.psv >| preprocessed/validation_fileli
 everyvoice train text-to-spec config/everyvoice-text-to-spec.yaml \
     --devices 2 \
     --strategy ddp \
-    --config-args training.max_steps=100000 \
+    --config-args model.multilingual=false \
+    --config-args model.multispeaker=true \
+    --config-args training.max_steps=250000 \
     --config-args training.batch_size=32 \
     --config-args training.val_check_interval=5000 \
     --config-args "training.vocoder_path=${HIFIGAN_UNIVERSAL_V1_EVERYVOICE_CKPT}"

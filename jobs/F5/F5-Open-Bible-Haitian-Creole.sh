@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=F5-Open-Bible-Haitian-Creole
-#SBATCH --partition=main
+#SBATCH --partition=long
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:l40s:2
 #SBATCH --cpus-per-task=8
@@ -40,7 +40,7 @@ cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/F5-TTS
 # Training
 ##################################################################
 python prepare_data.py --languages "Haitian Creole" --num-gpus 2 --target-updates 500000
-accelerate launch --num_processes 2 --mixed_precision bf16 src/f5_tts/train/train.py --config-name F5TTS_v1_Base_Open_Bible_Haitian_Creole.yaml
+accelerate launch --num_processes 2 --mixed_precision bf16 src/f5_tts/train/train.py --config-name "F5TTS_v1_Base_Open_Bible_Haitian Creole.yaml"
 
 ELAPSED=$(( SECONDS - START_TIME ))
 HOURS=$(( ELAPSED / 3600 ))
