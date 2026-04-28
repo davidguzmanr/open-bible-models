@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=EveryVoice-Open-Bible-Yoruba
+#SBATCH --job-name=EveryVoice-Open-Bible-Haitian-Creole
 #SBATCH --partition=long
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:l40s:2
@@ -33,7 +33,7 @@ echo "NVIDIA SMI:"
 nvidia-smi
 echo $HF_HOME
 
-cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/EveryVoice-TTS/Open-Bible-Yoruba
+cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/EveryVoice-TTS/Open-Bible-Haitian-Creole
 
 HIFIGAN_UNIVERSAL_V1_EVERYVOICE_CKPT="/home/mila/g/guzmand/scratch/checkpoints/hifigan_universal_v1_everyvoice.ckpt"
 
