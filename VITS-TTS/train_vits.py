@@ -38,8 +38,13 @@ MULTI-GPU USAGE (Coqui distribute.py — NOT torchrun):
     remains identical to a single-GPU run.
 
 RESUME TRAINING:
-    Add --restore_path /path/to/checkpoint_XXXXX.pth
-    (single-GPU) or pass it before --script for multi-GPU.
+    Preemption / requeue: the script automatically scans output_path for the
+    most recent checkpoint and resumes via continue_path if neither
+    --restore_path nor --continue_path is supplied.
+
+    To resume manually, pass --continue_path /path/to/run_dir (preferred,
+    restores full training state including optimizer) or
+    --restore_path /path/to/checkpoint_XXXXX.pth (weights only).
 
 TENSORBOARD:
     tensorboard --logdir /path/to/output_path
@@ -238,6 +243,38 @@ def parse_args():
 
 
 # ---------------------------------------------------------------------------
+# Preemption / checkpoint auto-resume
+# ---------------------------------------------------------------------------
+
+def find_latest_run_dir(output_path):
+    """Scan output_path for the run directory containing the newest checkpoint.
+
+    Coqui Trainer writes checkpoints under:
+        output_path/<run_name>-<timestamp>/checkpoint_<step>.pth
+
+    Returns (run_dir, checkpoint_path) of the most recently modified .pth
+    file found, or (None, None) if output_path does not exist or is empty.
+    """
+    if not os.path.isdir(output_path):
+        return None, None
+
+    latest_mtime = -1
+    latest_ckpt = None
+    latest_run_dir = None
+
+    for entry in os.scandir(output_path):
+        if not entry.is_dir():
+            continue
+        for f in os.scandir(entry.path):
+            if f.name.endswith(".pth") and f.stat().st_mtime > latest_mtime:
+                latest_mtime = f.stat().st_mtime
+                latest_ckpt = f.path
+                latest_run_dir = entry.path
+
+    return latest_run_dir, latest_ckpt
+
+
+# ---------------------------------------------------------------------------
 # Formatter
 # ---------------------------------------------------------------------------
 
@@ -305,6 +342,19 @@ def main():
     args = parse_args()
 
     os.makedirs(args.output_path, exist_ok=True)
+
+    # --- Preemption auto-resume ---
+    # If the job was preempted and requeued, pick up from the latest checkpoint
+    # saved in output_path so training continues seamlessly without any manual
+    # intervention. Explicit --restore_path / --continue_path always take precedence.
+    if args.restore_path is None and args.continue_path is None:
+        run_dir, ckpt = find_latest_run_dir(args.output_path)
+        if ckpt is not None:
+            print(f" > Preemption resume detected — continuing from run dir : {run_dir}")
+            print(f" > Latest checkpoint                                     : {ckpt}")
+            args.continue_path = run_dir
+        else:
+            print(" > No previous checkpoint found — starting training from scratch.")
 
     # TF32 on Ampere (A100/A6000/…): matmul and cuDNN ops use 19-bit mantissa
     # instead of full FP32 at ~20% higher throughput with negligible accuracy loss.

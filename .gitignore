@@ -238,6 +238,7 @@ jobs/Rorqual
 
 VITS-TTS/outputs/
 VITS-TTS/finetune-hf-vits
+VITS-TTS/TTS
 
 *.out
 dev.ipynb
