@@ -3,6 +3,15 @@
 Train a multilingual multispeaker VITS model using [Coqui TTS](https://github.com/coqui-ai/TTS).
 Vocabulary is built automatically from the metadata file — no phonemizer required.
 
+## Setup
+
+```bash
+git clone https://github.com/coqui-ai/TTS.git
+cd TTS
+pip install -e .
+pip install torchcodec
+```
+
 ## Dataset format
 
 A pipe-separated `metadata.csv` with a header row:
