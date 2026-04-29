@@ -224,12 +224,11 @@ VITS/
 F5-JJ/
 mila-docs/
 checkpoints/
+overleaf/
 
 EveryVoice-TTS/Open-Bible-Yoruba-NT
 EveryVoice-TTS/Igbo-Ewe-Yoruba-NT
 EveryVoice-TTS/synthesis_output
-
-*.out
 
 jobs/TamIA
 jobs/Vulcan
@@ -237,4 +236,8 @@ jobs/Killarney
 jobs/Fir
 jobs/Rorqual
 
+VITS-TTS/outputs/
+VITS-TTS/finetune-hf-vits
+
+*.out
 dev.ipynb
