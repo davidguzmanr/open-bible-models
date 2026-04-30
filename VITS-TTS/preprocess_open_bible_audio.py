@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import unicodedata
 from pathlib import Path
 
 import torch
@@ -63,6 +64,16 @@ def load_rows(meta_path: Path) -> tuple[str, list[tuple[str, str, str]]]:
     return header, rows
 
 
+def has_letter(text: str) -> bool:
+    """Return True if *text* contains at least one Unicode letter or combining mark.
+
+    VITS builds its vocabulary from letters (L*) and combining marks (M*).
+    A sample whose text has none of these would produce an empty phoneme
+    sequence, which crashes the stochastic duration predictor's spline flow.
+    """
+    return any(unicodedata.category(ch).startswith(("L", "M")) for ch in text)
+
+
 def process_wav(in_path: Path, out_path: Path, target_sr: int) -> None:
     wav, sr = torchaudio.load(str(in_path))
     if wav.dim() == 2 and wav.size(0) > 1:
@@ -93,9 +104,16 @@ def main() -> None:
     meta_out = out_root / "metadata.csv"
     out_lines: list[str] = [header]
 
+    skipped_no_text: list[int] = []
+
     for i, (audio_file, text, speaker) in enumerate(
         tqdm(rows, desc="Preprocessing", unit="file", total=len(rows))
     ):
+        # Skip samples whose text would produce an empty phoneme sequence.
+        if not has_letter(text):
+            skipped_no_text.append(i + 2)
+            continue
+
         in_path = Path(audio_file)
         if not in_path.is_file():
             print(f"error: missing audio file (row {i + 2}): {in_path}", file=sys.stderr)
@@ -111,9 +129,15 @@ def main() -> None:
         line = "|".join([new_audio, text, speaker])
         out_lines.append(line)
 
+    n_kept = len(out_lines) - 1  # subtract header
     meta_out.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     print(f"wrote {meta_out}")
-    print(f"wrote {len(rows)} wav files under {wav_dir}")
+    print(f"wrote {n_kept} wav files under {wav_dir}")
+    if skipped_no_text:
+        print(
+            f"skipped {len(skipped_no_text)} row(s) with no Unicode letters/combining marks "
+            f"(rows: {skipped_no_text[:10]}{'...' if len(skipped_no_text) > 10 else ''})"
+        )
 
 
 if __name__ == "__main__":

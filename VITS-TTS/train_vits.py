@@ -445,7 +445,7 @@ def main():
         save_step=args.save_step,
         save_checkpoints=True,
         save_n_checkpoints=args.save_n_checkpoints,
-        save_all_best=True,
+        save_all_best=False,
 
         # Efficiency
         mixed_precision=True,
