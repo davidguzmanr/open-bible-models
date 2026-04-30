@@ -61,6 +61,33 @@ from torch.utils.data import Sampler
 
 from trainer import Trainer, TrainerArgs
 
+# ---------------------------------------------------------------------------
+# Monkey-patch: guard rational_quadratic_spline against empty-tensor inputs.
+#
+# When all inputs in a batch fall outside the spline interval,
+# inside_interval_mask is all-False and inputs[inside_interval_mask] is an
+# empty tensor.  The original code then calls torch.min(inputs) / torch.max()
+# which raises "RuntimeError: min(): Expected reduction dim to be specified
+# for input.numel() == 0".  We replace the function with a version that
+# short-circuits for empty inputs — semantically correct because the
+# assignment back in the caller is a no-op for an empty mask.
+# ---------------------------------------------------------------------------
+import TTS.tts.layers.vits.transforms as _vits_transforms
+
+_orig_rqs = _vits_transforms.rational_quadratic_spline
+
+
+def _patched_rqs(inputs, *args, **kwargs):
+    if inputs.numel() == 0:
+        return inputs, torch.zeros_like(inputs)
+    return _orig_rqs(inputs, *args, **kwargs)
+
+
+_vits_transforms.rational_quadratic_spline = _patched_rqs
+# Python resolves the call inside unconstrained_rational_quadratic_spline via
+# the transforms module's own __dict__, so updating the module attribute is
+# sufficient to intercept every call path.
+
 from TTS.tts.configs.shared_configs import BaseDatasetConfig, CharactersConfig
 from TTS.tts.configs.vits_config import VitsConfig
 from TTS.tts.datasets import load_tts_samples
