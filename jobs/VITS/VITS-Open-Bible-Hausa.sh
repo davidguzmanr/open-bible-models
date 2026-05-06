@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=VITS-Open-Bible-Hausa
-#SBATCH --partition=main
+#SBATCH --partition=long
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:l40s:2
 #SBATCH --cpus-per-task=8

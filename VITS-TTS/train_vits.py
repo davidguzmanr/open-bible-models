@@ -53,6 +53,7 @@ TENSORBOARD:
 import argparse
 import math
 import os
+import sys
 import unicodedata
 
 import torch
@@ -260,6 +261,11 @@ def parse_args():
         "--run_name", default=None,
         help="Experiment name shown in logs (default: vits_<language>)",
     )
+    p.add_argument(
+        "--grad_clip", type=float, default=5.0,
+        help="Gradient norm clip threshold for both generator and discriminator "
+             "(default: 5.0). Applied to both optimizer groups.",
+    )
 
     # --- Injected by trainer.distribute (do not set manually) ---
     p.add_argument("--use_ddp", type=lambda x: str(x).lower() in ("true", "1"), default=False, help=argparse.SUPPRESS)
@@ -374,12 +380,22 @@ def main():
     # If the job was preempted and requeued, pick up from the latest checkpoint
     # saved in output_path so training continues seamlessly without any manual
     # intervention. Explicit --restore_path / --continue_path always take precedence.
-    if args.restore_path is None and args.continue_path is None:
+    if not args.restore_path and not args.continue_path:
         run_dir, ckpt = find_latest_run_dir(args.output_path)
         if ckpt is not None:
             print(f" > Preemption resume detected — continuing from run dir : {run_dir}")
             print(f" > Latest checkpoint                                     : {ckpt}")
             args.continue_path = run_dir
+            # Trainer.__init__ calls parse_argv() which re-reads sys.argv, overwriting
+            # any TrainerArgs values we set in Python.  trainer.distribute injects
+            # '--continue_path=' (empty string) into sys.argv; we replace it here so
+            # the Trainer sees the correct path and reuses the existing run directory.
+            for i, arg in enumerate(sys.argv):
+                if arg.startswith("--continue_path="):
+                    sys.argv[i] = f"--continue_path={run_dir}"
+                    break
+            else:
+                sys.argv.append(f"--continue_path={run_dir}")
         else:
             print(" > No previous checkpoint found — starting training from scratch.")
 
@@ -476,6 +492,7 @@ def main():
 
         # Efficiency
         mixed_precision=True,
+        grad_clip=[args.grad_clip, args.grad_clip],
         cudnn_benchmark=False,
 
         output_path=args.output_path,
