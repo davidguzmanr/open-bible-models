@@ -71,6 +71,8 @@ python -m trainer.distribute \
   --save_step 5000 \
   --save_n_checkpoints 5 \
   --print_step 5000 \
+  --grad_clip 1.0 \
+  --no_mixed_precision \
   --no_eval \
   --run_name vits_hausa
 

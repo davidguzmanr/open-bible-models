@@ -262,9 +262,14 @@ def parse_args():
         help="Experiment name shown in logs (default: vits_<language>)",
     )
     p.add_argument(
-        "--grad_clip", type=float, default=5.0,
+        "--grad_clip", type=float, default=1.0,
         help="Gradient norm clip threshold for both generator and discriminator "
-             "(default: 5.0). Applied to both optimizer groups.",
+             "(default: 1.0). Applied to both optimizer groups.",
+    )
+    p.add_argument(
+        "--no_mixed_precision", action="store_true",
+        help="Disable FP16 mixed-precision training and use FP32 throughout. "
+             "Slower but avoids FP16 overflow on numerically unstable runs.",
     )
 
     # --- Injected by trainer.distribute (do not set manually) ---
@@ -491,7 +496,7 @@ def main():
         save_all_best=False,
 
         # Efficiency
-        mixed_precision=True,
+        mixed_precision=not args.no_mixed_precision,
         grad_clip=[args.grad_clip, args.grad_clip],
         cudnn_benchmark=False,
 

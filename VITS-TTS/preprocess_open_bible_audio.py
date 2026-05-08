@@ -16,6 +16,7 @@ paths pointing at the processed files.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import unicodedata
 from pathlib import Path
@@ -64,6 +65,26 @@ def load_rows(meta_path: Path) -> tuple[str, list[tuple[str, str, str]]]:
     return header, rows
 
 
+def clean_text(text: str) -> str:
+    """Strip USFM footnote and cross-reference markers from Bible verse text.
+
+    Open Bible metadata embeds footnotes inline, e.g.:
+        "verse text + 23.30 \\+xt Hos 10.8\\+xt*"
+    These markers are not spoken in the audio, so leaving them in creates a
+    text/audio length mismatch that destabilises VITS duration alignment.
+
+    Two patterns are removed (in order):
+    1. \\+xt ... \\+xt*  — USFM cross-reference spans anywhere in the text
+    2. + N.NN ...        — trailing footnote / alternate-reading notes
+    """
+    # Remove \+xt ... \+xt* cross-reference spans (may appear mid-sentence)
+    text = re.sub(r'\\?\+xt\b.*?\\?\+xt\*', '', text, flags=re.DOTALL)
+    # Remove trailing footnote notes that start with "+ chapter.verse"
+    text = re.sub(r'\s*\+\s*\d+\.\d+\b.*', '', text, flags=re.DOTALL)
+    # Collapse any extra whitespace left by the removals
+    return ' '.join(text.split())
+
+
 def has_letter(text: str) -> bool:
     """Return True if *text* contains at least one Unicode letter or combining mark.
 
@@ -109,6 +130,8 @@ def main() -> None:
     for i, (audio_file, text, speaker) in enumerate(
         tqdm(rows, desc="Preprocessing", unit="file", total=len(rows))
     ):
+        text = clean_text(text)
+
         # Skip samples whose text would produce an empty phoneme sequence.
         if not has_letter(text):
             skipped_no_text.append(i + 2)
