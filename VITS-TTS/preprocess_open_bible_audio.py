@@ -68,19 +68,22 @@ def load_rows(meta_path: Path) -> tuple[str, list[tuple[str, str, str]]]:
 def clean_text(text: str) -> str:
     """Strip USFM footnote and cross-reference markers from Bible verse text.
 
-    Open Bible metadata embeds footnotes inline, e.g.:
-        "verse text + 23.30 \\+xt Hos 10.8\\+xt*"
+    Open Bible metadata embeds footnotes inline using two separator styles:
+        "verse text + 23.30 \\+xt Hos 10.8\\+xt*"   (dot-separated — Hausa, Yoruba, …)
+        "verse text + 13:8 footnote body …"           (colon-separated — Hiligaynon, Hindi, …)
     These markers are not spoken in the audio, so leaving them in creates a
     text/audio length mismatch that destabilises VITS duration alignment.
 
-    Two patterns are removed (in order):
-    1. \\+xt ... \\+xt*  — USFM cross-reference spans anywhere in the text
-    2. + N.NN ...        — trailing footnote / alternate-reading notes
+    Three patterns are removed (in order):
+    1. \\+xt ... \\+xt*       — USFM cross-reference spans anywhere in the text
+    2. \\+<tag> ... \\+<tag>* — other USFM inline markup (\\+nd, \\+add, etc.)
+    3. + N.NN / + N:NN ...    — trailing footnote / alternate-reading notes
+                                (both dot and colon verse separators)
     """
-    # Remove \+xt ... \+xt* cross-reference spans (may appear mid-sentence)
-    text = re.sub(r'\\?\+xt\b.*?\\?\+xt\*', '', text, flags=re.DOTALL)
-    # Remove trailing footnote notes that start with "+ chapter.verse"
-    text = re.sub(r'\s*\+\s*\d+\.\d+\b.*', '', text, flags=re.DOTALL)
+    # Remove \+xt ... \+xt* and other \+tag ... \+tag* USFM inline spans
+    text = re.sub(r'\\?\+\w+\b.*?\\?\+\w+\*', '', text, flags=re.DOTALL)
+    # Remove trailing footnote notes that start with "+ chapter.verse" (dot or colon)
+    text = re.sub(r'\s*\+\s*\d+[.:]\d+\b.*', '', text, flags=re.DOTALL)
     # Collapse any extra whitespace left by the removals
     return ' '.join(text.split())
 
