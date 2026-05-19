@@ -6,12 +6,12 @@ generated README to multilingual-tts/F5-TTS-OpenBible-{Language}.
 
 Example usage:
     python utils/upload_f5.py \
-        --language "Yoruba NT" \
-        --language_code yo \
-        --ckpt_path F5-TTS/ckpts/F5TTS_v1_Base_vocos_custom_open-bible-yoruba-nt/model_last.pt \
-        --vocab_file F5-TTS/data/open-bible-yoruba-nt_custom/vocab.txt \
-        --model_cfg F5-TTS/src/f5_tts/configs/F5TTS_v1_Base_Open_Bible_Yoruba-Nt.yaml \
-        --metadata_path F5-TTS/data/open-bible-yoruba-nt/metadata.csv
+        --language "Igbo" \
+        --language_code ig \
+        --ckpt_path F5-TTS/ckpts/F5TTS_v1_Base_vocos_custom_open-bible-igbo/model_last.pt \
+        --vocab_file F5-TTS/data/open-bible-igbo_custom/vocab.txt \
+        --model_cfg F5-TTS/src/f5_tts/configs/F5TTS_v1_Base_Open_Bible_Igbo.yaml \
+        --metadata_path F5-TTS/data/open-bible-igbo/metadata.csv
 """
 
 import argparse
