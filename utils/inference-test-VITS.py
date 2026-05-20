@@ -149,6 +149,18 @@ def main() -> None:
     subset = ds.select(range(n))
     print(f"Test samples (total): {len(ds)}, synthesizing: {n}")
 
+    # ── Save metadata CSV ──────────────────────────────────────────────────────
+    csv_path = output_dir / "test.csv"
+    df_meta = subset.to_pandas().drop(columns=["audio"])
+    df_meta["filename"] = (
+        df_meta["testament"].astype(str) + "-" +
+        df_meta["book"].astype(str) + "-" +
+        df_meta["chapter"].astype(str) + "-" +
+        df_meta["verse"].astype(str) + ".wav"
+    )
+    df_meta.to_csv(csv_path, index=False)
+    print(f"Metadata CSV saved to: {csv_path}")
+
     # ── Pick majority speaker from training metadata ───────────────────────────
     print(f"\nLoading training metadata from: {args.metadata_path}")
     metadata = pd.read_csv(args.metadata_path, sep="|")

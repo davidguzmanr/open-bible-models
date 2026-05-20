@@ -14,6 +14,7 @@ Example usage:
 import argparse
 import os
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -216,6 +217,18 @@ def main():
     n = min(500, len(ds)) if args.head is None else min(args.head, len(ds))
     subset = ds.select(range(n))
     print(f"Synthesizing {n} samples")
+
+    # ── Save metadata CSV ──────────────────────────────────────────────────────
+    csv_path = Path(OUTPUT_DIR) / "test.csv"
+    df_meta = subset.to_pandas().drop(columns=["audio"])
+    df_meta["filename"] = (
+        df_meta["testament"].astype(str) + "-" +
+        df_meta["book"].astype(str) + "-" +
+        df_meta["chapter"].astype(str) + "-" +
+        df_meta["verse"].astype(str) + ".wav"
+    )
+    df_meta.to_csv(csv_path, index=False)
+    print(f"Metadata CSV saved to: {csv_path}")
 
     generated_files = []
 

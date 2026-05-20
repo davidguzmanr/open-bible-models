@@ -106,6 +106,18 @@ def main() -> None:
     subset = ds.select(range(n))
     print(f"Test samples (total): {len(ds)}, synthesizing: {n}")
 
+    # ── Save metadata CSV ──────────────────────────────────────────────────────
+    csv_path = output_dir / "test.csv"
+    df = subset.to_pandas().drop(columns=["audio"])
+    df["filename"] = (
+        df["testament"].astype(str) + "-" +
+        df["book"].astype(str) + "-" +
+        df["chapter"].astype(str) + "-" +
+        df["verse"].astype(str) + ".wav"
+    )
+    df.to_csv(csv_path, index=False)
+    print(f"Metadata CSV saved to: {csv_path}")
+
     # ── Pick the majority speaker from the EveryVoice training filelist ──────
     # The PSV has columns: basename|language|speaker|characters|phones.
     # Speaker names already match model.speaker2id, so no remapping is needed.
