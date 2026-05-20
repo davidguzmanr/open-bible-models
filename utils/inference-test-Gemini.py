@@ -1,20 +1,13 @@
 """
 Batch synthesis with the Gemini TTS API for a target language.
 
-Reads a CSV of (text, filename) rows and writes one WAV per row to
-output_dir, using a fixed prebuilt voice so the entire test set is
-rendered in a single consistent voice. Existing output files are
-skipped on subsequent invocations, making the script safe to re-run.
-
-Authentication: GOOGLE_API_KEY (or GEMINI_API_KEY) must be set in the
-environment.
+Authentication: GOOGLE_API_KEY (or GEMINI_API_KEY) must be set in the environment.
 
 Example:
     export GOOGLE_API_KEY=...
     python inference-Gemini-open-bible.py \\
-        --test_path audios/open-bible/Swahili.csv \\
-        --output_dir audios/open-bible/Gemini/Swahili \\
-        --language Swahili
+        --language Igbo \\
+        --output_dir audios/open-bible/Gemini/Igbo
 """
 
 import argparse
@@ -23,7 +16,7 @@ import time
 import wave
 from pathlib import Path
 
-import pandas as pd
+from datasets import load_dataset
 from tqdm import tqdm
 
 
@@ -39,16 +32,12 @@ GEMINI_VOICES = [
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--test_path", required=True,
-        help="Path to the test CSV (must have 'text' and 'filename' columns).",
+        "--language", required=True,
+        help="Language name as used in the HuggingFace dataset and as the 'Read this in <language>:' prompt prefix.",
     )
     p.add_argument(
         "--output_dir", required=True,
         help="Directory where generated WAVs are saved.",
-    )
-    p.add_argument(
-        "--language", required=True,
-        help="Language hint, used as the 'Read this in <language>:' prefix.",
     )
     p.add_argument(
         "--model", default="gemini-2.5-pro-preview-tts",
@@ -57,11 +46,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--voice", default="Kore", choices=GEMINI_VOICES,
         help="Prebuilt voice name (default: Kore).",
-    )
-    p.add_argument("--text_column", default="text")
-    p.add_argument(
-        "--filename_column", default="filename",
-        help="Column with output file names. Falls back to row index if missing.",
     )
     p.add_argument(
         "--sample_rate", type=int, default=24000,
@@ -132,18 +116,17 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    df = pd.read_csv(args.test_path)
-    if args.text_column not in df.columns:
-        raise SystemExit(
-            f"CSV missing required text column '{args.text_column}'. "
-            f"Found: {list(df.columns)}"
-        )
-    has_fname = args.filename_column in df.columns
-
-    if args.head is not None:
-        df = df.head(args.head)
-
-    print(f"Read {len(df)} rows from {args.test_path}")
+    print(f"Loading test set for language: {args.language}")
+    ds = load_dataset(
+        "parquet",
+        data_files={
+            "test": f"hf://datasets/davidguzmanr/open-bible-resources/{args.language}/test-*.parquet"
+        },
+        split="test",
+    )
+    n = min(500, len(ds)) if args.head is None else min(args.head, len(ds))
+    subset = ds.select(range(n))
+    print(f"Test samples (total): {len(ds)}, synthesizing: {n}")
     print(f"Model={args.model}  voice={args.voice}  language={args.language}")
     print(f"Output -> {output_dir}")
 
@@ -154,22 +137,19 @@ def main() -> None:
     skipped = 0
     failed: list[tuple[str, str]] = []
 
-    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Synthesising"):
-        if has_fname:
-            stem = os.path.splitext(str(row[args.filename_column]))[0]
-        else:
-            stem = f"row_{idx:04d}"
-        out_path = output_dir / f"{stem}.wav"
+    for row in tqdm(subset, total=n, desc="Synthesising"):
+        out_filename = f"{row['testament']}-{row['book']}-{row['chapter']}-{row['verse']}.wav"
+        out_path = output_dir / out_filename
         if out_path.exists():
             skipped += 1
             continue
 
-        prompt = f"Read this in {args.language}: {row[args.text_column]}"
+        prompt = f"Read this in {args.language}: {row['text']}"
         try:
             blob = synth_with_retry(client, args.model, args.voice, prompt,
                                     args.max_retries, args.backoff_base)
         except Exception as exc:
-            failed.append((stem, str(exc)))
+            failed.append((out_filename, str(exc)))
             continue
 
         pcm_to_wav(blob.data, out_path, args.sample_rate, args.sample_width)

@@ -1,22 +1,13 @@
 """
-Batch TTS inference with EveryVoice over a local test CSV for a given language/checkpoint.
-
-Mirrors the structure of inference-F5-open-bible.py:
-  - reads a local test CSV (comma-separated, columns: text, filename)
-  - reads the EveryVoice training filelist (pipe-separated PSV, columns:
-    basename|language|speaker|characters|phones) to find the majority speaker
-    by utterance count
-  - the speaker name already matches model.speaker2id since EveryVoice produced
-    the filelist
-  - runs EveryVoice batch synthesis and saves <stem>.wav files to output_dir
+Batch TTS inference with EveryVoice over a HuggingFace dataset split for a given language/checkpoint.
 
 Example usage:
     python inference-EveryVoice-open-bible.py \\
-        --test_path audios/open-bible/Yoruba.csv \\
-        --output_dir synthesis_output/yoruba-nt-everyvoice \\
-        --ckpt_path Open-Bible-Yoruba-NT/logs_and_checkpoints/FeaturePredictionExperiment/base/checkpoints/last.ckpt \\
+        --language Igbo \\
+        --output_dir synthesis_output/igbo-everyvoice \\
+        --ckpt_path Open-Bible-Igbo/logs_and_checkpoints/FeaturePredictionExperiment/base/checkpoints/last.ckpt \\
         --vocoder_ckpt_path /path/to/hifigan_universal_v1_everyvoice.ckpt \\
-        --filelist_path EveryVoice/open-bible-yoruba-filelist.psv
+        --filelist_path EveryVoice/open-bible-igbo-filelist.psv
 """
 
 import argparse
@@ -25,6 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 import torch
+from datasets import load_dataset
 
 from everyvoice.config.type_definitions import DatasetTextRepresentation
 from everyvoice.model.feature_prediction.FastSpeech2_lightning.fs2.cli.synthesize import (
@@ -50,9 +42,9 @@ def parse_args() -> argparse.Namespace:
         description="Batch EveryVoice TTS inference over a local test CSV."
     )
     parser.add_argument(
-        "--test_path",
+        "--language",
         required=True,
-        help="Path to the test CSV (comma-separated, must have 'text' and 'filename' columns).",
+        help="Language name as used in the HuggingFace dataset (e.g. 'Igbo').",
     )
     parser.add_argument(
         "--output_dir",
@@ -102,11 +94,17 @@ def main() -> None:
     everyvoice_wav_dir = output_dir / "wav"
 
     # ── Load test set ─────────────────────────────────────────────────────────
-    print(f"Loading test set from: {args.test_path}")
-    test = pd.read_csv(args.test_path)
-    if args.head is not None:
-        test = test.head(args.head)
-    print(f"Test samples: {len(test)}")
+    print(f"Loading test set for language: {args.language}")
+    ds = load_dataset(
+        "parquet",
+        data_files={
+            "test": f"hf://datasets/davidguzmanr/open-bible-resources/{args.language}/test-*.parquet"
+        },
+        split="test",
+    )
+    n = min(500, len(ds)) if args.head is None else min(args.head, len(ds))
+    subset = ds.select(range(n))
+    print(f"Test samples (total): {len(ds)}, synthesizing: {n}")
 
     # ── Pick the majority speaker from the EveryVoice training filelist ──────
     # The PSV has columns: basename|language|speaker|characters|phones.
@@ -164,15 +162,15 @@ def main() -> None:
     # Skip files that have already been generated.
     filelist_data = []
     skipped = []
-    for _, row in test.iterrows():
-        stem     = os.path.splitext(row["filename"])[0]
-        out_path = output_dir / f"{stem}.wav"
+    for row in subset:
+        basename = f"{row['testament']}-{row['book']}-{row['chapter']}-{row['verse']}"
+        out_path = output_dir / f"{basename}.wav"
         if out_path.exists():
             skipped.append(str(out_path))
             continue
         filelist_data.append(
             {
-                "basename":         stem,
+                "basename":         basename,
                 "characters":       row["text"],
                 "language":         default_language,
                 "speaker":          synthesis_speaker,

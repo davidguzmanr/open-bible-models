@@ -1,11 +1,10 @@
 """
 Batch synthesis with the k2-fsa/OmniVoice zero-shot TTS model.
 
-Reads a CSV of (text, filename) rows and writes one WAV per row to
-output_dir. A single reference audio file and its transcription are
-used as the voice prompt for every row, so the entire test set is
-rendered in a consistent voice. Existing output files are skipped on
-subsequent invocations, making the script safe to re-run.
+Loads the test split from hf://datasets/davidguzmanr/open-bible-resources/{language}/test-*.parquet
+and writes one WAV per row to output_dir. A single reference audio file and its transcription are
+used as the voice prompt for every row, so the entire test set is rendered in a consistent voice.
+Existing output files are skipped on subsequent invocations, making the script safe to re-run.
 
 The reference audio and text can be supplied directly via --ref_audio /
 --ref_text, or derived automatically from a training metadata CSV via
@@ -22,18 +21,16 @@ explicit transcription.
 Examples:
     # explicit reference
     python inference-OmniVoice-open-bible.py \\
-        --test_path audios/open-bible/Swahili.csv \\
-        --output_dir audios/open-bible/OmniVoice/Swahili \\
-        --language Swahili \\
-        --ref_audio /path/to/swahili-ref.wav \\
+        --language Igbo \\
+        --output_dir audios/open-bible/OmniVoice/Igbo \\
+        --ref_audio /path/to/igbo-ref.wav \\
         --ref_text "Exact transcription of the clip"
 
     # reference derived from metadata
     python inference-OmniVoice-open-bible.py \\
-        --test_path audios/open-bible/Swahili.csv \\
-        --output_dir audios/open-bible/OmniVoice/Swahili \\
-        --language Swahili \\
-        --metadata_path data/open-bible-swahili/metadata.csv
+        --language Igbo \\
+        --output_dir audios/open-bible/OmniVoice/Igbo \\
+        --metadata_path data/open-bible-igbo/metadata.csv
 """
 
 import argparse
@@ -45,22 +42,19 @@ import pandas as pd
 import soundfile as sf
 import torch
 import torchaudio
+from datasets import load_dataset
 from tqdm import tqdm
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--test_path", required=True,
-        help="Path to the test CSV (must have 'text' and 'filename' columns).",
+        "--language", required=True,
+        help="Language name as used in the HuggingFace dataset (e.g. 'Igbo').",
     )
     p.add_argument(
         "--output_dir", required=True,
         help="Directory where generated WAVs are saved.",
-    )
-    p.add_argument(
-        "--language", required=True,
-        help="Language name (informational only; OmniVoice auto-detects from text).",
     )
     p.add_argument(
         "--metadata_path", default=None,
@@ -87,11 +81,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--dtype", default="float16",
         choices=["float16", "bfloat16", "float32"],
-    )
-    p.add_argument("--text_column", default="text")
-    p.add_argument(
-        "--filename_column", default="filename",
-        help="Column with output file names; falls back to row_NNNN if missing.",
     )
     p.add_argument(
         "--sample_rate", type=int, default=24000,
@@ -153,18 +142,17 @@ def main() -> None:
         if not Path(ref_audio).is_file():
             raise SystemExit(f"ERROR: --ref_audio not found: {ref_audio}")
 
-    df = pd.read_csv(args.test_path)
-    if args.text_column not in df.columns:
-        raise SystemExit(
-            f"CSV missing required text column '{args.text_column}'. "
-            f"Found: {list(df.columns)}"
-        )
-    has_fname = args.filename_column in df.columns
-
-    if args.head is not None:
-        df = df.head(args.head)
-
-    print(f"Read {len(df)} rows from {args.test_path}")
+    print(f"Loading test set for language: {args.language}")
+    ds = load_dataset(
+        "parquet",
+        data_files={
+            "test": f"hf://datasets/davidguzmanr/open-bible-resources/{args.language}/test-*.parquet"
+        },
+        split="test",
+    )
+    n = min(500, len(ds)) if args.head is None else min(args.head, len(ds))
+    subset = ds.select(range(n))
+    print(f"Test samples (total): {len(ds)}, synthesizing: {n}")
     print(f"Reference: {ref_audio}")
     print(f"  ref_text: " + (ref_text[:80] if ref_text else "(auto-transcribed via Whisper)"))
     print(f"Output -> {output_dir}")
@@ -184,26 +172,23 @@ def main() -> None:
     skipped = 0
     failed: list[tuple[str, str]] = []
 
-    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Synthesising"):
-        if has_fname:
-            stem = os.path.splitext(str(row[args.filename_column]))[0]
-        else:
-            stem = f"row_{idx:04d}"
-        out_path = output_dir / f"{stem}.wav"
+    for row in tqdm(subset, total=n, desc="Synthesising"):
+        out_filename = f"{row['testament']}-{row['book']}-{row['chapter']}-{row['verse']}.wav"
+        out_path = output_dir / out_filename
         if out_path.exists():
             skipped += 1
             continue
 
         try:
             gen_kwargs = {
-                "text": row[args.text_column],
+                "text": row["text"],
                 "ref_audio": ref_audio,
             }
             if ref_text:
                 gen_kwargs["ref_text"] = ref_text
             audio = model.generate(**gen_kwargs)
         except Exception as exc:
-            failed.append((stem, str(exc)))
+            failed.append((out_filename, str(exc)))
             continue
 
         # OmniVoice returns list-of-tensor-or-numpy. Normalise to [1, T] torch.
