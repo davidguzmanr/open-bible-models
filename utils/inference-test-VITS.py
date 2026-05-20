@@ -110,6 +110,40 @@ def parse_args() -> argparse.Namespace:
 
 
 # ---------------------------------------------------------------------------
+# Text normalisation
+# ---------------------------------------------------------------------------
+
+# Mapping of Unicode typographic characters to their ASCII equivalents.
+# These are commonly split into their own sentence fragment by the sentence
+# splitter, then discarded as OOV, leaving an empty token sequence that
+# causes an IndexError inside generate_path.
+_UNICODE_REPLACEMENTS = str.maketrans({
+    "\u2018": "'",   # '  left single quotation mark
+    "\u2019": "'",   # '  right single quotation mark
+    "\u201A": "'",   # ‚  single low-9 quotation mark
+    "\u201B": "'",   # ‛  single high-reversed-9 quotation mark
+    "\u201C": '"',   # "  left double quotation mark
+    "\u201D": '"',   # "  right double quotation mark
+    "\u201E": '"',   # „  double low-9 quotation mark
+    "\u201F": '"',   # ‟  double high-reversed-9 quotation mark
+    "\u2032": "'",   # ′  prime
+    "\u2033": '"',   # ″  double prime
+    "\u2039": "<",   # ‹  single left angle quotation mark
+    "\u203A": ">",   # ›  single right angle quotation mark
+    "\u00AB": '"',   # «  left-pointing double angle quotation mark
+    "\u00BB": '"',   # »  right-pointing double angle quotation mark
+    "\u2013": "-",   # –  en dash
+    "\u2014": "-",   # —  em dash
+    "\u2026": "...", # …  horizontal ellipsis
+})
+
+
+def normalize_text(text: str) -> str:
+    """Replace typographic Unicode characters with ASCII equivalents."""
+    return text.translate(_UNICODE_REPLACEMENTS)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -222,7 +256,7 @@ def main() -> None:
             continue
 
         wav_data = synthesizer.tts(
-            text=row["text"],
+            text=normalize_text(row["text"]),
             speaker_name=synthesis_speaker,
             split_sentences=True,
         )
