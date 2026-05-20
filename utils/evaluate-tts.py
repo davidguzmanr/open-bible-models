@@ -4,10 +4,17 @@
 Usage
 -----
     python evaluate-tts.py \\
-        /path/to/ground_truth \\
-        /path/to/synthesized \\
-        /path/to/test.csv \\
-        /path/to/results.csv \\
+        --synthesized_dir /path/to/synthesized \\
+        --test_csv /path/to/test.csv \\
+        --output_csv /path/to/results.csv \\
+        --metrics utmos wer
+
+    # Reference-based metrics also require --ground_truth_dir:
+    python evaluate-tts.py \\
+        --ground_truth_dir /path/to/ground_truth \\
+        --synthesized_dir /path/to/synthesized \\
+        --test_csv /path/to/test.csv \\
+        --output_csv /path/to/results.csv \\
         --metrics mcd speechbertscore utmos wer
 
 The script is fully resumable: re-running it will skip rows that are already
@@ -215,7 +222,7 @@ def evaluate_utmos(
     num_repetitions: int = 1,
     predict_dataset: str = "sarulab",
     device: str = "cuda:0",
-    batch_size: int = 16,
+    batch_size: int = 32,
     num_workers: int = 4,
     output_csv: str | None = None,
     filename_column: str = "filename",
@@ -276,8 +283,8 @@ def evaluate_wer(
     synthesized_dir: str,
     system_name: str = "tts",
     lang: str = "yor_Latn",
-    batch_size: int = 8,
-    asr_model_card: str = "omniASR_LLM_7B_v2",
+    batch_size: int = 32,
+    asr_model_card: str = "omniASR_LLM_1B_v2",
     output_csv: str | None = None,
     filename_column: str = "filename",
     text_column: str = "text",
@@ -357,8 +364,11 @@ def parse_args() -> argparse.Namespace:
     # Required named arguments
     parser.add_argument(
         "--ground_truth_dir",
-        required=True,
-        help="Directory containing ground-truth waveforms.",
+        default=None,
+        help=(
+            "Directory containing ground-truth waveforms. "
+            "Required only for reference-based metrics (mcd, speechbertscore)."
+        ),
     )
     parser.add_argument(
         "--synthesized_dir",
@@ -366,7 +376,7 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing synthesized waveforms.",
     )
     parser.add_argument(
-        "--metadata_csv",
+        "--test_csv",
         required=True,
         help=(
             "CSV (or TSV) file with at minimum a filename column and a text column. "
@@ -398,12 +408,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--filename-column",
         default="filename",
-        help="Column in METADATA_CSV that holds the .wav filenames.",
+        help="Column in TEST_CSV that holds the .wav filenames.",
     )
     parser.add_argument(
         "--text-column",
         default="text",
-        help="Column in METADATA_CSV that holds the reference transcription (used for WER).",
+        help="Column in TEST_CSV that holds the reference transcription (used for WER).",
     )
     parser.add_argument(
         "--target-sr",
@@ -439,7 +449,7 @@ def parse_args() -> argparse.Namespace:
     wer_group.add_argument("--asr-batch-size", type=int, default=16)
     wer_group.add_argument(
         "--asr-model-card",
-        default="omniASR_LLM_7B_v2",
+        default="omniASR_LLM_1B_v2",
         help="Model card identifier for omnilingual ASR.",
     )
 
@@ -464,9 +474,9 @@ def main() -> None:
         print(f"Resuming from existing results: {args.output_csv}")
         df = pd.read_csv(args.output_csv)
     else:
-        sep = "\t" if args.metadata_csv.endswith(".tsv") else ","
-        df = pd.read_csv(args.metadata_csv, sep=sep)
-        print(f"Loaded {len(df)} rows from {args.metadata_csv}")
+        sep = "\t" if args.test_csv.endswith(".tsv") else ","
+        df = pd.read_csv(args.test_csv, sep=sep)
+        print(f"Loaded {len(df)} rows from {args.test_csv}")
 
     # Auto-detect device
     device: str = args.device or ""
@@ -484,6 +494,10 @@ def main() -> None:
     # Validate file presence
     reference_metrics = {"mcd", "speechbertscore"}
     if any(m in reference_metrics for m in args.metrics):
+        if not args.ground_truth_dir:
+            sys.exit(
+                "ERROR: --ground_truth_dir is required when computing mcd or speechbertscore."
+            )
         check_files(df, args.ground_truth_dir, args.synthesized_dir, args.filename_column)
     else:
         check_synthesized_files(df, args.synthesized_dir, args.filename_column)
@@ -566,6 +580,11 @@ def main() -> None:
     if metric_cols:
         print("\n── Summary ──")
         print(df[metric_cols].describe().loc[["count", "mean", "std", "min", "max"]])
+        print("\n── Copy-paste table ──")
+        for col in metric_cols:
+            mean = df[col].mean()
+            std  = df[col].std()
+            print(f"{col}: {mean:.2f} ± {std:.2f}")
 
 
 if __name__ == "__main__":
