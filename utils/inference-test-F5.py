@@ -1,14 +1,14 @@
 """
-Batch TTS inference over a local test CSV for a given language/checkpoint.
+Batch TTS inference over a HuggingFace dataset split for a given language/checkpoint.
 
 Example usage:
     python inference-F5-open-bible.py \
-        --test_path audios/open-bible/Yoruba.csv \
-        --output_dir synthesis_output/yoruba-nt \
-        --ckpt_path ckpts/F5TTS_v1_Base_vocos_custom_open-bible-yoruba-nt/model_last.pt \
-        --vocab_file data/open-bible-yoruba-nt_custom/vocab.txt \
-        --model_cfg src/f5_tts/configs/F5TTS_v1_Base_Open_Bible_Yoruba-Nt.yaml \
-        --metadata_path data/open-bible-yoruba-nt/metadata.csv
+        --language Igbo \
+        --output_dir synthesis_output/igbo \
+        --ckpt_path ckpts/F5TTS_v1_Base_vocos_custom_open-bible-igbo/model_last.pt \
+        --vocab_file data/open-bible-igbo_custom/vocab.txt \
+        --model_cfg src/f5_tts/configs/F5TTS_v1_Base_Open_Bible_Igbo.yaml \
+        --metadata_path data/open-bible-igbo/metadata.csv
 """
 
 import argparse
@@ -20,6 +20,7 @@ import pandas as pd
 import soundfile as sf
 import torch
 import torchaudio
+from datasets import load_dataset
 from tqdm import tqdm
 
 
@@ -72,9 +73,9 @@ def parse_args():
         description="Batch TTS inference over a local test CSV."
     )
     parser.add_argument(
-        "--test_path",
+        "--language",
         required=True,
-        help="Path to the test CSV (comma-separated, must have 'text' and 'filename' columns).",
+        help="Language name as used in the HuggingFace dataset (e.g. 'Igbo').",
     )
     parser.add_argument(
         "--output_dir",
@@ -115,7 +116,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    TEST_PATH     = args.test_path
+    LANGUAGE      = args.language
     OUTPUT_DIR    = args.output_dir
     CKPT_PATH     = args.ckpt_path
     VOCAB_FILE    = args.vocab_file
@@ -125,9 +126,15 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # ── Load test set ──────────────────────────────────────────────────────────
-    print(f"Loading test set from: {TEST_PATH}")
-    test = pd.read_csv(TEST_PATH)
-    print(f"Test samples: {len(test)}")
+    print(f"Loading test set for language: {LANGUAGE}")
+    ds = load_dataset(
+        "parquet",
+        data_files={
+            "test": f"hf://datasets/davidguzmanr/open-bible-resources/{LANGUAGE}/test-*.parquet"
+        },
+        split="test",
+    )
+    print(f"Test samples (total): {len(ds)}")
 
     # ── Pick a reference audio from the training set ───────────────────────────
     print(f"Loading training metadata from: {METADATA_PATH}")
@@ -206,14 +213,15 @@ def main():
     print(f"Preprocessed ref_text                 : {ref_text}")
 
     # ── Batch inference ────────────────────────────────────────────────────────
-    rows = test.head(args.head) if args.head is not None else test
+    n = min(500, len(ds)) if args.head is None else min(args.head, len(ds))
+    subset = ds.select(range(n))
+    print(f"Synthesizing {n} samples")
 
     generated_files = []
 
-    for idx, row in tqdm(rows.iterrows(), total=len(rows), desc="Synthesizing"):
+    for row in tqdm(subset, total=n, desc="Synthesizing"):
         gen_text     = ensure_punctuation(row["text"])
-        stem         = os.path.splitext(row["filename"])[0]
-        out_filename = f"{stem}.wav"
+        out_filename = f"{row['testament']}-{row['book']}-{row['chapter']}-{row['verse']}.wav"
         out_path     = os.path.join(OUTPUT_DIR, out_filename)
 
         if os.path.exists(out_path):

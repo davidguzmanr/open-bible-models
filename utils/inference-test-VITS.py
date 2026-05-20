@@ -1,25 +1,12 @@
 """
-Batch TTS inference with Coqui VITS over a local test CSV for a given language/checkpoint.
-
-Mirrors the structure of inference-F5-open-bible.py and inference-EveryVoice-open-bible.py:
-  - reads a local test CSV (comma-separated, columns: text, filename)
-  - reads the training metadata (pipe-separated: audio_file|text|speaker_id, with header)
-    to find the majority speaker by utterance count
-  - loads the Coqui TTS Synthesizer from the checkpoint, config.json, and speakers.pth
-  - runs synthesis sample-by-sample and saves <stem>.wav files to output_dir
-
-Checkpoint directory layout (produced by train_vits.py):
-    output_path/<run_name>-<timestamp>/
-        checkpoint_<step>.pth   ← pass this as --ckpt_path
-        config.json             ← auto-detected from same dir, or pass --config_path
-        speakers.pth            ← auto-detected from same dir, or pass --speakers_path
+Batch TTS inference over a HuggingFace dataset split for a given language/checkpoint.
 
 Example usage:
-    python inference-VITS-open-bible.py \\
-        --test_path     audios/open-bible/Yoruba.csv \\
-        --output_dir    synthesis_output/yoruba-nt-vits \\
-        --ckpt_path     outputs/yoruba/vits_yoruba-April-29-2026_11+52PM-fd8dd03/checkpoint_250000.pth \\
-        --metadata_path data/open-bible-yoruba-nt/metadata.csv
+    python inference-test-VITS.py \
+        --language      Igbo \
+        --output_dir    synthesis_output/igbo-vits \
+        --ckpt_path     outputs/igbo/vits_igbo-April-29-2026_11+52PM-fd8dd03/checkpoint_250000.pth \
+        --metadata_path data/open-bible-igbo/metadata.csv
 """
 
 import argparse
@@ -30,6 +17,7 @@ import numpy as np
 import pandas as pd
 import soundfile as sf
 import torch
+from datasets import load_dataset
 from tqdm import tqdm
 
 
@@ -65,9 +53,9 @@ def parse_args() -> argparse.Namespace:
         description="Batch Coqui VITS TTS inference over a local test CSV."
     )
     parser.add_argument(
-        "--test_path",
+        "--language",
         required=True,
-        help="Path to the test CSV (comma-separated, must have 'text' and 'filename' columns).",
+        help="Language name as used in the HuggingFace dataset (e.g. 'Igbo').",
     )
     parser.add_argument(
         "--output_dir",
@@ -149,11 +137,17 @@ def main() -> None:
     print(f"Speakers   : {speakers_path}")
 
     # ── Load test set ──────────────────────────────────────────────────────────
-    print(f"\nLoading test set from: {args.test_path}")
-    test = pd.read_csv(args.test_path)
-    if args.head is not None:
-        test = test.head(args.head)
-    print(f"Test samples: {len(test)}")
+    print(f"\nLoading test set for language: {args.language}")
+    ds = load_dataset(
+        "parquet",
+        data_files={
+            "test": f"hf://datasets/davidguzmanr/open-bible-resources/{args.language}/test-*.parquet"
+        },
+        split="test",
+    )
+    n = min(500, len(ds)) if args.head is None else min(args.head, len(ds))
+    subset = ds.select(range(n))
+    print(f"Test samples (total): {len(ds)}, synthesizing: {n}")
 
     # ── Pick majority speaker from training metadata ───────────────────────────
     print(f"\nLoading training metadata from: {args.metadata_path}")
@@ -207,11 +201,9 @@ def main() -> None:
     skipped = []
     generated = []
 
-    rows = test.iterrows()
-
-    for _, row in tqdm(rows, total=len(test), desc="Synthesizing"):
-        stem     = os.path.splitext(row["filename"])[0]
-        out_path = output_dir / f"{stem}.wav"
+    for row in tqdm(subset, total=n, desc="Synthesizing"):
+        out_filename = f"{row['testament']}-{row['book']}-{row['chapter']}-{row['verse']}.wav"
+        out_path     = output_dir / out_filename
 
         if out_path.exists():
             skipped.append(str(out_path))
@@ -231,11 +223,11 @@ def main() -> None:
 
     # ── Verify all expected files are present ─────────────────────────────────
     missing = []
-    for _, row in test.iterrows():
-        stem          = os.path.splitext(row["filename"])[0]
-        expected_path = output_dir / f"{stem}.wav"
+    for row in subset:
+        out_filename  = f"{row['testament']}-{row['book']}-{row['chapter']}-{row['verse']}.wav"
+        expected_path = output_dir / out_filename
         if not expected_path.exists():
-            missing.append(stem)
+            missing.append(out_filename)
 
     if missing:
         missing_list = "\n  - ".join(missing)

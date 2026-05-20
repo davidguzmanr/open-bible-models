@@ -240,5 +240,7 @@ VITS-TTS/outputs/
 VITS-TTS/finetune-hf-vits
 VITS-TTS/TTS
 
+synthesis_output/
+
 *.out
 dev.ipynb
