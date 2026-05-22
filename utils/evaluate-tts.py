@@ -278,6 +278,27 @@ def evaluate_utmos(
     return df
 
 
+ARABIC_SCRIPT_LANGS = {"arb_Arab", "urd_Arab", "ckb_Arab"}
+
+
+def _normalise_for_wer(text: str, lang: str) -> str:
+    """normalisation with Arabic-tashkeel stripping."""
+    import unicodedata
+
+    text = text.casefold()
+    if lang in ARABIC_SCRIPT_LANGS:
+        nfd = unicodedata.normalize("NFD", text)
+        text = "".join(ch for ch in nfd if not unicodedata.combining(ch))
+    out: list[str] = []
+    for ch in text:
+        cat = unicodedata.category(ch)
+        if cat.startswith(("P", "S")):
+            out.append(" ")
+        else:
+            out.append(ch)
+    return " ".join("".join(out).split())
+
+
 def evaluate_wer(
     df: pd.DataFrame,
     synthesized_dir: str,
@@ -342,7 +363,11 @@ def evaluate_wer(
         for idx, hyp in zip(batch_indices, hypotheses):
             ref = df.at[idx, text_column]
             df.at[idx, hyp_col] = hyp
-            df.at[idx, wer_col] = jiwer.wer(str(ref), str(hyp))
+            ref_norm = _normalise_for_wer(str(ref), lang)
+            hyp_norm = _normalise_for_wer(str(hyp), lang)
+            df.at[idx, wer_col] = (
+                jiwer.wer(ref_norm, hyp_norm) if ref_norm else np.nan
+            )
 
         if output_csv:
             df.to_csv(output_csv, index=False)
