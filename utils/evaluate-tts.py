@@ -318,9 +318,10 @@ def evaluate_wer(
     hyp_col = f"{system_name}_asr_hyp"
     wer_col = f"{system_name}_wer"
 
-    for col in (hyp_col, wer_col):
-        if col not in df.columns:
-            df[col] = np.nan
+    if hyp_col not in df.columns:
+        df[hyp_col] = pd.Series([""] * len(df), dtype="object")
+    if wer_col not in df.columns:
+        df[wer_col] = np.nan
 
     remaining = df.index[df[wer_col].isna()].tolist()
     if not remaining:
