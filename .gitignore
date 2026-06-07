@@ -225,10 +225,12 @@ F5-JJ/
 mila-docs/
 checkpoints/
 overleaf/
+EMNLP_2026___Open_Bible/
 
 EveryVoice-TTS/Open-Bible-Yoruba-NT
 EveryVoice-TTS/Igbo-Ewe-Yoruba-NT
 EveryVoice-TTS/synthesis_output
+EveryVoice-TTS/ckpts
 
 jobs/TamIA
 jobs/Vulcan
@@ -239,6 +241,7 @@ jobs/Rorqual
 VITS-TTS/outputs/
 VITS-TTS/finetune-hf-vits
 VITS-TTS/TTS
+VITS-TTS/ckpts
 
 synthesis_output/
 

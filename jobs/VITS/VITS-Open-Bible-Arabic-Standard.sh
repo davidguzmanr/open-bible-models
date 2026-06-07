@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=VITS-Open-Bible-Malayalam
-#SBATCH --partition=main
+#SBATCH --job-name=VITS-Open-Bible-Arabic-Standard
+#SBATCH --partition=long
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:l40s:2
 #SBATCH --cpus-per-task=8
@@ -36,8 +36,8 @@ echo $HF_HOME
 ##################################################################
 # Preprocess and stage dataset into $SLURM_TMPDIR for fast local I/O
 ##################################################################
-DATA_SRC=/network/scratch/g/guzmand/Repositories/open-bible-models/F5-TTS/data/open-bible-malayalam
-DATA_DST=$SLURM_TMPDIR/data/open-bible-malayalam
+DATA_SRC="/network/scratch/g/guzmand/Repositories/open-bible-models/F5-TTS/data/open-bible-arabic standard"
+DATA_DST="$SLURM_TMPDIR/data/open-bible-arabic standard"
 
 mkdir -p "$DATA_DST"
 
@@ -58,9 +58,9 @@ echo "Preprocessed dataset ready at $DATA_DST/metadata.csv"
 python -m trainer.distribute \
   --script train_vits.py \
   --gpus "0,1" \
-  --metadata $DATA_DST/metadata.csv \
-  --language ml \
-  --output_path outputs/malayalam \
+  --metadata "$DATA_DST/metadata.csv" \
+  --language ar \
+  --output_path outputs/arabic-standard \
   --global_batch_size 64 \
   --num_gpus 2 \
   --target_steps 250000 \
@@ -71,10 +71,8 @@ python -m trainer.distribute \
   --save_step 5000 \
   --save_n_checkpoints 5 \
   --print_step 5000 \
-  --grad_clip 1.0 \
-  --no_mixed_precision \
   --no_eval \
-  --run_name vits_malayalam
+  --run_name vits_arabic_standard
 
 
 END_TIME=$(date +%s)

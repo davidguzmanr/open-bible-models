@@ -65,8 +65,8 @@ def parse_args() -> argparse.Namespace:
         "--filelist_path",
         required=True,
         help=(
-            "Path to the EveryVoice training filelist (pipe-separated PSV with columns "
-            "basename|language|speaker|characters|phones) used to pick the majority speaker."
+            "Path to a pipe-separated metadata file (F5-TTS metadata.csv or EveryVoice "
+            "filelist.psv) used to pick the majority speaker."
         ),
     )
     parser.add_argument(
@@ -103,12 +103,12 @@ def main() -> None:
         split="test",
     )
     n = min(500, len(ds)) if args.head is None else min(args.head, len(ds))
-    subset = ds.select(range(n))
+    subset = ds.select(range(n)).remove_columns("audio")
     print(f"Test samples (total): {len(ds)}, synthesizing: {n}")
 
     # ── Save metadata CSV ──────────────────────────────────────────────────────
     csv_path = output_dir / "test.csv"
-    df = subset.to_pandas().drop(columns=["audio"])
+    df = subset.to_pandas()
     df["filename"] = (
         df["testament"].astype(str) + "-" +
         df["book"].astype(str) + "-" +
@@ -118,13 +118,13 @@ def main() -> None:
     df.to_csv(csv_path, index=False)
     print(f"Metadata CSV saved to: {csv_path}")
 
-    # ── Pick the majority speaker from the EveryVoice training filelist ──────
-    # The PSV has columns: basename|language|speaker|characters|phones.
-    # Speaker names already match model.speaker2id, so no remapping is needed.
-    # We use utterance count as a proxy for total audio (no audio paths in PSV).
-    print(f"Loading EveryVoice filelist from: {args.filelist_path}")
+    # ── Pick the majority speaker from training metadata ─────────────────────
+    # F5-TTS metadata.csv: audio_file|text|speaker_id
+    # EveryVoice filelist.psv: basename|language|speaker|characters|phones
+    print(f"Loading speaker metadata from: {args.filelist_path}")
     filelist = pd.read_csv(args.filelist_path, sep="|")
-    speaker_counts = filelist["speaker"].value_counts()
+    speaker_col = "speaker" if "speaker" in filelist.columns else "speaker_id"
+    speaker_counts = filelist[speaker_col].value_counts()
     best_speaker   = speaker_counts.idxmax()
     print(
         f"Speaker with most utterances: {best_speaker} "
