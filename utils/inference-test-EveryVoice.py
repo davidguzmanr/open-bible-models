@@ -187,6 +187,9 @@ def main() -> None:
                 "language":         default_language,
                 "speaker":          synthesis_speaker,
                 "duration_control": 1.0,
+                # Required by the dataset __getitem__ during inference; each entry is a
+                # single (non-chunked) utterance, so it is always the last chunk.
+                "is_last_input_chunk": True,
             }
         )
 

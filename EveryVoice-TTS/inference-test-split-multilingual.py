@@ -6,12 +6,16 @@ Same pipeline as inference-test-split.py, but each synthesis row uses explicit
 ``language`` and ``speaker`` ids that must exist in the trained FastSpeech2
 checkpoint (``model.lang2id`` / ``model.speaker2id``).
 
-Usage (Yoruba test split, Yoruba voice):
+Note: models trained with ``multilingual: false`` in the EveryVoice config use
+``und`` as their single language tag (or may have an empty lang2id altogether).
+Language information is then encoded exclusively through speaker IDs.
+
+Usage (Yoruba test split, Igbo-Ewe-Yoruba-NT checkpoint):
     python inference-test-split-multilingual.py \\
         --language Yoruba \\
         --ev-language und \\
         --speaker SPEAKER_00_Yoruba \\
-        --ckpt_path Igbo-Ewe-Yoruba-NT/logs_and_checkpoints/.../last.ckpt \\
+        --ckpt_path Igbo-Ewe-Yoruba-NT/logs_and_checkpoints/FeaturePredictionExperiment/base/checkpoints/last.ckpt \\
         --vocoder_ckpt_path /path/to/hifigan_universal_v1_everyvoice.ckpt \\
         --output_dir synthesis_output/yoruba-nt-speaker00
 
@@ -32,6 +36,7 @@ from pathlib import Path
 import pandas as pd
 import soundfile as sf
 import torch
+import torchaudio
 from datasets import Audio, load_dataset
 from tqdm import tqdm
 
@@ -41,6 +46,9 @@ from everyvoice.model.feature_prediction.FastSpeech2_lightning.fs2.cli.synthesiz
     synthesize_helper,
 )
 from everyvoice.model.feature_prediction.FastSpeech2_lightning.fs2.model import FastSpeech2
+from everyvoice.model.feature_prediction.FastSpeech2_lightning.fs2.prediction_writing_callback import (
+    PredictionWritingWavCallback,
+)
 from everyvoice.model.feature_prediction.FastSpeech2_lightning.fs2.type_definitions import (
     SynthesizeOutputFormats,
 )
@@ -48,6 +56,57 @@ from everyvoice.model.vocoder.HiFiGAN_iSTFT_lightning.hfgl.utils import (
     load_hifigan_from_checkpoint,
 )
 from everyvoice.utils.heavy import get_device_from_accelerator
+
+
+def _patched_wav_on_predict_batch_end(
+    self,
+    _trainer,
+    _pl_module,
+    outputs,
+    batch,
+    _batch_idx,
+    _dataloader_idx=0,
+):
+    """Replacement for PredictionWritingWavCallback.on_predict_batch_end that
+    uses batch["basename"] for the output filename instead of slugifying the
+    text.  The default callback derives the filename from the text content,
+    which causes collisions when multiple utterances share a common prefix.
+    Applying this patch before calling synthesize_helper ensures every
+    generated WAV is named after our desired testament-book-chapter-verse
+    basename."""
+    wavs, sr = self.synthesize_audio(outputs)
+    assert "tgt_lens" in outputs and outputs["tgt_lens"] is not None
+
+    basenames = batch["basename"]
+    speakers = batch["speaker"]
+    languages = batch["language"]
+    is_last_input_chunk = batch["is_last_input_chunk"]
+    texts = batch["raw_text"]
+    unmasked_lens = list(outputs["tgt_lens"])
+
+    for i, wav in enumerate(wavs):
+        trimmed_wav = wav[:, : (unmasked_lens[i] * self.output_hop_size)]
+        self.full_wav = torch.cat((self.full_wav, trimmed_wav), -1)
+        self.full_text += texts[i]
+
+        if is_last_input_chunk[i]:
+            filename = self.get_filename(basenames[i], speakers[i], languages[i])
+            torchaudio.save(
+                filename,
+                self.full_wav,
+                sr,
+                format="wav",
+                encoding="PCM_S",
+                bits_per_sample=16,
+            )
+            self.full_wav = torch.tensor(())
+            self.full_text = ""
+            self.last_file_written = filename
+
+
+# Apply patch at import time so it is in effect when synthesize_helper
+# instantiates the callback internally.
+PredictionWritingWavCallback.on_predict_batch_end = _patched_wav_on_predict_batch_end
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,6 +159,14 @@ def parse_args() -> argparse.Namespace:
         "--output_dir",
         help="Root directory for ground-truth WAVs, generated WAVs, and test.csv.",
     )
+    parser.add_argument(
+        "--head",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Only synthesize the first N samples (useful for quick tests). "
+        "Default: up to 500.",
+    )
     args = parser.parse_args()
 
     if args.list_model_ids:
@@ -115,20 +182,21 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def get_audio_filename(example):
-    example["filename"] = example["audio"]["path"].split("/")[-1]
-    return example
-
-
 def list_checkpoint_language_speaker_ids(ckpt_path: Path) -> None:
     print(f"Loading checkpoint (CPU, ids only): {ckpt_path}")
     model = FastSpeech2.load_from_checkpoint(str(ckpt_path), map_location="cpu")
     model.eval()
     langs = sorted(model.lang2id.keys())
     speakers = sorted(model.speaker2id.keys())
-    print("\nLanguages (use one as --ev-language):")
-    for k in langs:
-        print(f"  {k!r}")
+    if langs:
+        print("\nLanguages (use one as --ev-language):")
+        for k in langs:
+            print(f"  {k!r}")
+    else:
+        print(
+            "\nLanguages: (none — model trained with multilingual=false; "
+            "omit --ev-language or use the language column from the training filelist)"
+        )
     print("\nSpeakers (use one as --speaker):")
     for k in speakers:
         print(f"  {k!r}")
@@ -139,22 +207,31 @@ def resolve_language_speaker(
     model: FastSpeech2,
     ev_language: str | None,
     speaker: str | None,
-) -> tuple[str, str]:
+) -> tuple[str | None, str]:
     lang_keys = list(model.lang2id.keys())
     spk_keys = list(model.speaker2id.keys())
-    if not lang_keys or not spk_keys:
-        raise RuntimeError(
-            "Checkpoint has empty lang2id or speaker2id; is this a multilingual "
-            "multispeaker model?"
-        )
 
-    lang = ev_language if ev_language is not None else lang_keys[0]
+    if not spk_keys:
+        raise RuntimeError("Checkpoint has empty speaker2id. Cannot perform synthesis.")
+
+    # When multilingual=false, lang2id may be empty; language conditioning is unused.
+    if not lang_keys:
+        if ev_language is not None:
+            print(
+                f"Warning: --ev-language {ev_language!r} was specified but "
+                f"model.lang2id is empty (model trained with multilingual=false). "
+                f"Proceeding with language=None."
+            )
+        lang = None
+    else:
+        lang = ev_language if ev_language is not None else lang_keys[0]
+        if lang not in model.lang2id:
+            raise ValueError(
+                f"Unknown --ev-language {lang!r}. "
+                f"Valid languages: {sorted(model.lang2id)}"
+            )
+
     spk = speaker if speaker is not None else spk_keys[0]
-
-    if lang not in model.lang2id:
-        raise ValueError(
-            f"Unknown --ev-language {lang!r}. Valid languages: {sorted(model.lang2id)}"
-        )
     if spk not in model.speaker2id:
         raise ValueError(
             f"Unknown --speaker {spk!r}. Valid speakers: {sorted(model.speaker2id)}"
@@ -191,30 +268,34 @@ def main() -> None:
         split="test",
     )
     ds = ds.cast_column("audio", Audio(decode=False))
-    ds = ds.map(get_audio_filename)
 
+    n = min(500, len(ds)) if args.head is None else min(args.head, len(ds))
+    ds = ds.select(range(n))
+    print(f"Test samples (total): {len(ds)}, synthesizing: {n}")
+
+    # Build basenames the same way as the monolingual script: testament-book-chapter-verse
     test_df = ds.remove_columns("audio").to_pandas()
-    print(f"Test samples: {len(test_df)}")
+    test_df["basename"] = (
+        test_df["testament"].astype(str) + "-" +
+        test_df["book"].astype(str) + "-" +
+        test_df["chapter"].astype(str) + "-" +
+        test_df["verse"].astype(str)
+    )
+    test_df["filename"] = test_df["basename"] + ".wav"
 
     test_df.to_csv(test_csv_path, index=False)
     print(f"Saved test dataframe to: {test_csv_path}")
 
     print("Saving ground-truth WAV files…")
-    for example in tqdm(ds, desc="Saving ground-truth WAVs"):
-        filename = example["filename"]
-        stem = os.path.splitext(filename)[0]
-        out_path = ground_truth_dir / f"{stem}.wav"
-
+    for example, basename in tqdm(
+        zip(ds, test_df["basename"]), total=n, desc="Saving ground-truth WAVs"
+    ):
+        out_path = ground_truth_dir / f"{basename}.wav"
         with io.BytesIO(example["audio"]["bytes"]) as buf:
             audio_array, sample_rate = sf.read(buf)
-
         sf.write(str(out_path), audio_array, sample_rate)
 
-    print(f"Saved {len(ds)} WAV files to {ground_truth_dir}")
-
-    test_df = pd.read_csv(test_csv_path)
-    test_df = test_df.rename(columns={"filename": "file"})
-    test_df = test_df[["file", "text"]]
+    print(f"Saved {n} WAV files to {ground_truth_dir}")
     print(f"Total sentences to synthesise: {len(test_df)}")
 
     print(f"Using device: {device}")
@@ -246,11 +327,14 @@ def main() -> None:
 
     filelist_data = [
         {
-            "basename": os.path.splitext(row["file"])[0],
+            "basename": row["basename"],
             "characters": row["text"],
             "language": synth_language,
             "speaker": synth_speaker,
             "duration_control": 1.0,
+            # Required by the dataset __getitem__ during inference; each entry is a
+            # single (non-chunked) utterance, so it is always the last chunk.
+            "is_last_input_chunk": True,
         }
         for _, row in test_df.iterrows()
     ]
@@ -298,10 +382,9 @@ def main() -> None:
 
     missing = []
     for _, row in test_df.iterrows():
-        stem = os.path.splitext(row["file"])[0]
-        expected_path = wav_dir / f"{stem}.wav"
+        expected_path = wav_dir / f"{row['basename']}.wav"
         if not expected_path.exists():
-            missing.append(row["file"])
+            missing.append(row["basename"])
 
     if missing:
         print(f"\nMissing {len(missing)} generated files:", file=sys.stderr)
