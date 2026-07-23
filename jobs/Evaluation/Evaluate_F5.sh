@@ -338,6 +338,14 @@ python utils/evaluate-tts.py \
     --metrics ${METRICS} \
     --asr-lang yor_Latn
 
+# Yoruba — fine-tuned Vocos vocoder (yor_Latn)
+python utils/evaluate-tts.py \
+    --synthesized_dir ${BASE_DIR}/yoruba-finetuned-vocoder \
+    --test_csv ${BASE_DIR}/yoruba-finetuned-vocoder/test.csv \
+    --output_csv ${BASE_DIR}/yoruba-finetuned-vocoder/results.csv \
+    --metrics ${METRICS} \
+    --asr-lang yor_Latn
+
 ##################################################################
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))

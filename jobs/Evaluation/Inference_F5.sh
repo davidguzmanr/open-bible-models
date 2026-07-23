@@ -458,6 +458,15 @@ python utils/inference-test-F5.py \
     --model_cfg F5-TTS/src/f5_tts/configs/F5TTS_v1_Base_Open_Bible_Yoruba.yaml \
     --metadata_path F5-TTS/data/open-bible-yoruba/metadata.csv
 
+python utils/inference-test-F5-finetuned-vocoder.py \
+    --language Yoruba \
+    --output_dir synthesis_output/F5/yoruba-finetuned-vocoder \
+    --ckpt_path F5-TTS/ckpts/F5TTS_v1_Base_vocos_custom_open-bible-yoruba/model_last.pt \
+    --vocab_file F5-TTS/data/open-bible-yoruba_custom/vocab.txt \
+    --model_cfg F5-TTS/src/f5_tts/configs/F5TTS_v1_Base_Open_Bible_Yoruba.yaml \
+    --metadata_path F5-TTS/data/open-bible-yoruba/metadata.csv \
+    --vocoder_ckpt vocos/logs/lightning_logs/version_0/checkpoints/last.ckpt
+
 ##################################################################
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
