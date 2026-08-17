@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=Evaluate_F5
+#SBATCH --job-name=Evaluate-Ground-Truth
 #SBATCH --partition=long
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:l40s:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=0-06:00:00
+#SBATCH --time=0-02:00:00
 #SBATCH --output=%x-%j.out
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=david.guzman@mila.quebec
@@ -39,8 +39,8 @@ cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/
 # Evaluation
 ##################################################################
 
-BASE_DIR="synthesis_output/F5"
-METRICS="utmosv1 utmosv2 wer"
+BASE_DIR="synthesis_output/ground-truth"
+METRICS="utmosv1"
 
 # Arabic Standard (arb_Arab)
 python utils/evaluate-tts.py \

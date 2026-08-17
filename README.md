@@ -270,16 +270,21 @@ python evaluate-tts.py \
     --synthesized_dir /path/to/generated \
     --metadata_csv /path/to/test.csv \
     --output_csv /path/to/results.csv \
-    --metrics utmos wer \
+    --metrics utmosv2 wer \
     --asr-lang yor_Latn \
     --system-name everyvoice
 ```
 
-`evaluate-tts.py` supports four metrics:
+`evaluate-tts.py` supports five metrics:
 
 | Metric | Type | Direction |
 |--------|------|-----------|
 | `mcd` | Mel Cepstral Distortion | lower is better |
 | `speechbertscore` | WavLM-based similarity | higher is better |
-| `utmos` | Predicted MOS (UTMOSv2) | higher is better |
+| `utmosv1` | Predicted MOS (UTMOS22 strong, via SpeechMOS torch.hub) | higher is better |
+| `utmosv2` | Predicted MOS (UTMOSv2) | higher is better |
 | `wer` | Word Error Rate via ASR | lower is better |
+
+`utmosv1` and `utmosv2` can be requested together and write to separate columns
+(`{system}_utmosv1` / `{system}_utmosv2`), so the two predictors can be compared
+on the same rows.

@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:l40s:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=0-06:00:00
+#SBATCH --time=0-02:00:00
 #SBATCH --output=%x-%j.out
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=david.guzman@mila.quebec
@@ -40,7 +40,7 @@ cd /home/mila/g/guzmand/scratch/Repositories/open-bible-models/
 ##################################################################
 
 BASE_DIR="synthesis_output/EveryVoice"
-METRICS="utmos wer"
+METRICS="utmosv1 utmosv2 wer"
 
 # Arabic Standard (arb_Arab)
 python utils/evaluate-tts.py \
@@ -231,7 +231,7 @@ python utils/evaluate-tts.py \
     --synthesized_dir ${BASE_DIR}/ndebele \
     --test_csv ${BASE_DIR}/ndebele/test.csv \
     --output_csv ${BASE_DIR}/ndebele/results.csv \
-    --metrics utmos \
+    --metrics utmosv2 \
     --asr-lang nde_Latn
 
 # Nepali (nep_Deva)

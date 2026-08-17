@@ -7,7 +7,7 @@ Usage
         --synthesized_dir /path/to/synthesized \\
         --test_csv /path/to/test.csv \\
         --output_csv /path/to/results.csv \\
-        --metrics utmos wer
+        --metrics utmosv2 wer
 
     # Reference-based metrics also require --ground_truth_dir:
     python evaluate-tts.py \\
@@ -15,7 +15,14 @@ Usage
         --synthesized_dir /path/to/synthesized \\
         --test_csv /path/to/test.csv \\
         --output_csv /path/to/results.csv \\
-        --metrics mcd speechbertscore utmos wer
+        --metrics mcd speechbertscore utmosv1 utmosv2 wer
+
+Two MOS predictors are available and can be run side by side; they write to
+separate columns (``{system}_utmosv1`` / ``{system}_utmosv2``):
+
+* ``utmosv1`` — original UTMOS22 strong learner, via the SpeechMOS torch.hub
+  bundle (``tarepan/SpeechMOS``). No extra install beyond torch/torchaudio.
+* ``utmosv2`` — UTMOSv2, via the ``utmosv2`` package.
 
 The script is fully resumable: re-running it will skip rows that are already
 scored in OUTPUT_CSV.
@@ -35,7 +42,7 @@ import pandas as pd
 from tqdm import tqdm
 
 
-VALID_METRICS = ["mcd", "speechbertscore", "utmos", "wer"]
+VALID_METRICS = ["mcd", "speechbertscore", "utmosv1", "utmosv2", "wer"]
 
 
 # ── Memory management ────────────────────────────────────────────────
@@ -67,6 +74,16 @@ def load_and_resample(path: str, target_sr: int = 16000):
     if sr != target_sr:
         waveform = torchaudio.functional.resample(waveform, sr, target_sr)
     return waveform.squeeze().numpy()
+
+
+def load_mono(path: str):
+    """Load a waveform at its native sample rate as mono, returning (tensor[1, T], sr)."""
+    import torchaudio
+
+    waveform, sr = torchaudio.load(path)
+    if waveform.shape[0] > 1:
+        waveform = waveform.mean(dim=0, keepdim=True)
+    return waveform, sr
 
 
 # ── File validation ──────────────────────────────────────────────────
@@ -214,7 +231,64 @@ def evaluate_speechbertscore(
     return df
 
 
-def evaluate_utmos(
+def evaluate_utmosv1(
+    df: pd.DataFrame,
+    synthesized_dir: str,
+    system_name: str = "tts",
+    device: str = "cuda:0",
+    hub_repo: str = "tarepan/SpeechMOS:v1.2.0",
+    hub_model: str = "utmos22_strong",
+    output_csv: str | None = None,
+    save_every: int = 200,
+    filename_column: str = "filename",
+) -> pd.DataFrame:
+    """UTMOS22 strong-learner predicted MOS (higher is better, non-reference).
+
+    Uses the SpeechMOS torch.hub bundle, which downloads its own weights on
+    first use and resamples internally, so audio is passed at its native rate.
+    Files are scored one at a time: the model pools SSL features over time, so
+    zero-padding a batch of unequal-length clips would perturb the scores.
+    """
+    import torch
+
+    df = df.copy()
+    col = f"{system_name}_utmosv1"
+
+    if col not in df.columns:
+        df[col] = np.nan
+
+    remaining = df.index[df[col].isna()].tolist()
+    if not remaining:
+        print(f"UTMOSv1 [{system_name}]: all rows already scored — nothing to do.")
+        return df
+    print(
+        f"UTMOSv1 [{system_name}]: scoring {len(remaining)} / {len(df)} rows "
+        f"(skipping {len(df) - len(remaining)} already scored)"
+    )
+
+    predictor = torch.hub.load(hub_repo, hub_model, trust_repo=True)
+    predictor = predictor.to(device).eval()
+
+    with torch.inference_mode():
+        for n, idx in enumerate(tqdm(remaining, desc=f"UTMOSv1 [{system_name}]"), start=1):
+            fname = df.at[idx, filename_column]
+            path = os.path.join(synthesized_dir, fname)
+            if not os.path.isfile(path):
+                continue
+            waveform, sr = load_mono(path)
+            score = predictor(waveform.to(device), sr)
+            df.at[idx, col] = score.item()
+
+            if output_csv and save_every and n % save_every == 0:
+                df.to_csv(output_csv, index=False)
+
+    if output_csv:
+        df.to_csv(output_csv, index=False)
+        print(f"UTMOSv1 [{system_name}]: results saved to {output_csv}")
+    return df
+
+
+def evaluate_utmosv2(
     df: pd.DataFrame,
     synthesized_dir: str,
     system_name: str = "tts",
@@ -231,17 +305,17 @@ def evaluate_utmos(
     import utmosv2
 
     df = df.copy()
-    col = f"{system_name}_utmos"
+    col = f"{system_name}_utmosv2"
 
     if col not in df.columns:
         df[col] = np.nan
 
     remaining = df.index[df[col].isna()].tolist()
     if not remaining:
-        print(f"UTMOS [{system_name}]: all rows already scored — nothing to do.")
+        print(f"UTMOSv2 [{system_name}]: all rows already scored — nothing to do.")
         return df
     print(
-        f"UTMOS [{system_name}]: scoring {len(remaining)} / {len(df)} rows "
+        f"UTMOSv2 [{system_name}]: scoring {len(remaining)} / {len(df)} rows "
         f"(skipping {len(df) - len(remaining)} already scored)"
     )
 
@@ -274,7 +348,7 @@ def evaluate_utmos(
 
     if output_csv:
         df.to_csv(output_csv, index=False)
-        print(f"UTMOS [{system_name}]: results saved to {output_csv}")
+        print(f"UTMOSv2 [{system_name}]: results saved to {output_csv}")
     return df
 
 
@@ -453,16 +527,35 @@ def parse_args() -> argparse.Namespace:
         help="Torch device string (e.g. cuda:0, cpu). Auto-detected if omitted.",
     )
 
-    # UTMOS-specific
-    utmos_group = parser.add_argument_group("UTMOS options")
-    utmos_group.add_argument("--utmos-fold", type=int, default=0, help="UTMOSv2 fold index (0–4).")
-    utmos_group.add_argument("--utmos-batch-size", type=int, default=32)
-    utmos_group.add_argument("--utmos-num-workers", type=int, default=4)
-    utmos_group.add_argument(
-        "--utmos-num-repetitions",
+    # UTMOSv1-specific
+    utmosv1_group = parser.add_argument_group("UTMOSv1 options")
+    utmosv1_group.add_argument(
+        "--utmosv1-hub-repo",
+        default="tarepan/SpeechMOS:v1.2.0",
+        help="torch.hub repo:tag providing the UTMOS22 strong learner.",
+    )
+    utmosv1_group.add_argument(
+        "--utmosv1-hub-model",
+        default="utmos22_strong",
+        help="Entry point to load from --utmosv1-hub-repo.",
+    )
+    utmosv1_group.add_argument(
+        "--utmosv1-save-every",
+        type=int,
+        default=200,
+        help="Checkpoint the results CSV every N scored files (0 disables).",
+    )
+
+    # UTMOSv2-specific
+    utmosv2_group = parser.add_argument_group("UTMOSv2 options")
+    utmosv2_group.add_argument("--utmosv2-fold", type=int, default=0, help="UTMOSv2 fold index (0–4).")
+    utmosv2_group.add_argument("--utmosv2-batch-size", type=int, default=32)
+    utmosv2_group.add_argument("--utmosv2-num-workers", type=int, default=4)
+    utmosv2_group.add_argument(
+        "--utmosv2-num-repetitions",
         type=int,
         default=1,
-        help="TTA repetitions for more stable UTMOS scores.",
+        help="TTA repetitions for more stable UTMOSv2 scores.",
     )
 
     # WER-specific
@@ -499,6 +592,15 @@ def main() -> None:
     if os.path.exists(args.output_csv):
         print(f"Resuming from existing results: {args.output_csv}")
         df = pd.read_csv(args.output_csv)
+
+        # Results written before the utmosv1/utmosv2 split used a bare "_utmos"
+        # column, which always held UTMOSv2 scores. Carry them over so those
+        # rows are not recomputed.
+        legacy_col = f"{args.system_name}_utmos"
+        v2_col = f"{args.system_name}_utmosv2"
+        if legacy_col in df.columns and v2_col not in df.columns:
+            df = df.rename(columns={legacy_col: v2_col})
+            print(f"  Renamed legacy column {legacy_col} → {v2_col} (UTMOSv2 scores).")
     else:
         sep = "\t" if args.test_csv.endswith(".tsv") else ","
         df = pd.read_csv(args.test_csv, sep=sep)
@@ -561,18 +663,33 @@ def main() -> None:
         )
         free_memory()
 
-    if "utmos" in args.metrics:
-        print(f"\n{'='*60}\n  Metric: UTMOS\n{'='*60}")
-        df = evaluate_utmos(
+    if "utmosv1" in args.metrics:
+        print(f"\n{'='*60}\n  Metric: UTMOSv1 (UTMOS22 strong)\n{'='*60}")
+        df = evaluate_utmosv1(
             df=df,
             synthesized_dir=args.synthesized_dir,
             system_name=args.system_name,
-            fold=args.utmos_fold,
-            num_repetitions=args.utmos_num_repetitions,
+            device=device,
+            hub_repo=args.utmosv1_hub_repo,
+            hub_model=args.utmosv1_hub_model,
+            output_csv=args.output_csv,
+            save_every=args.utmosv1_save_every,
+            filename_column=args.filename_column,
+        )
+        free_memory()
+
+    if "utmosv2" in args.metrics:
+        print(f"\n{'='*60}\n  Metric: UTMOSv2\n{'='*60}")
+        df = evaluate_utmosv2(
+            df=df,
+            synthesized_dir=args.synthesized_dir,
+            system_name=args.system_name,
+            fold=args.utmosv2_fold,
+            num_repetitions=args.utmosv2_num_repetitions,
             predict_dataset="sarulab",
             device=device,
-            batch_size=args.utmos_batch_size,
-            num_workers=args.utmos_num_workers,
+            batch_size=args.utmosv2_batch_size,
+            num_workers=args.utmosv2_num_workers,
             output_csv=args.output_csv,
             filename_column=args.filename_column,
         )
@@ -600,7 +717,7 @@ def main() -> None:
     prefix = args.system_name
     metric_cols = [
         c for c in df.columns
-        if c in (f"{prefix}_mcd", f"{prefix}_utmos", f"{prefix}_wer")
+        if c in (f"{prefix}_mcd", f"{prefix}_utmosv1", f"{prefix}_utmosv2", f"{prefix}_wer")
         or c.startswith(f"{prefix}_bertscore_")
     ]
     if metric_cols:
